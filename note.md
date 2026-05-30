@@ -83,5 +83,5 @@
 
 ### Git 同步记录
 
-- 已提交实现：`e4fd61a feat: add Hermes HY Memory provider`。
-- 已推送到 `origin/main`，并验证 `HEAD`、`origin/main`、`git ls-remote origin refs/heads/main` 均为 `e4fd61a9d4f14341a4c3dbce613890a3c3e9b1d0`。
+- 实现提交已创建并推送；后续仅允许 note-only 同步记录更新。
+- 当前远程同步状态以 `git rev-parse HEAD`、`git rev-parse origin/main`、`git ls-remote origin refs/heads/main` 的实时验证为准，避免在本文件中记录会随 note-only 提交变化而过期的最终 SHA。
