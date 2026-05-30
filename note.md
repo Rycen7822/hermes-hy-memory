@@ -80,3 +80,8 @@
 - CLI/smoke：`python3 cli.py status --hermes-home /tmp/hy-memory-final-cli` 成功；`python3 scripts/smoke_hy_memory.py --skip-if-unconfigured --hermes-home /tmp/hy-memory-final-smoke` 在当前未安装 SDK 环境中正确 `SKIP`。
 - 安全/清理：非 reference 源码/文档 staged secret scan -> `0` findings；`git check-ignore` 确认 `/reference/`、`.pytest_cache/`、`__pycache__/` 被忽略；已移除当前生成的 cache 目录。
 - 100% 信心复盘：对 plan.md Phase 0–6 的实现与验证闭环有事实信心；唯一未执行真实后端 add/search/delete 的原因是当前 Python 环境没有 `hy_memory` SDK，已由可跳过 smoke 明确报告而非伪造结果。
+
+### Git 同步记录
+
+- 已提交实现：`e4fd61a feat: add Hermes HY Memory provider`。
+- 已推送到 `origin/main`，并验证 `HEAD`、`origin/main`、`git ls-remote origin refs/heads/main` 均为 `e4fd61a9d4f14341a4c3dbce613890a3c3e9b1d0`。
