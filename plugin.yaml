@@ -1,0 +1,5 @@
+name: hy_memory
+version: 0.1.0
+description: "HY Memory local/remote cognitive long-term memory provider for Hermes Agent. Uses the hy-memory SDK with explicit tools, auto recall, and auto capture."
+pip_dependencies:
+  - hy-memory

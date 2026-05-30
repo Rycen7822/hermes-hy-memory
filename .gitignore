@@ -1,0 +1,7 @@
+# Local downloaded reference packages and extracted source snapshots
+/reference/
+
+# Python/test generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
