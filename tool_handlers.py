@@ -92,8 +92,8 @@ LIST_SCHEMA = _schema(
 
 STATUS_SCHEMA = _schema(
     "hy_memory_status",
-    "Show HY Memory provider status and local SDK availability.",
-    {"deep": {"type": "boolean", "description": "Reserved for future backend health checks."}},
+    "Show HY Memory provider status and optional deep backend health checks.",
+    {"deep": {"type": "boolean", "description": "When true, run explicit SDK/vector/embedder/LLM health checks."}},
 )
 
 TOOL_SCHEMAS = [ADD_SCHEMA, SEARCH_SCHEMA, GET_SCHEMA, UPDATE_SCHEMA, DELETE_SCHEMA, LIST_SCHEMA, STATUS_SCHEMA]
@@ -175,7 +175,7 @@ def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, 
 
     try:
         if tool_name == "hy_memory_status":
-            return _json(adapter.status())
+            return _json(adapter.status(deep=bool(args.get("deep"))))
 
         if tool_name == "hy_memory_search":
             query = str(args.get("query") or "").strip()

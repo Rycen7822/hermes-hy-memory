@@ -40,6 +40,10 @@ def test_readme_documents_install_enable_verify_and_restart():
 
     assert "hermes plugins enable hy_memory" in readme
     assert "hermes config set memory.provider hy_memory" in readme
+    assert "auxiliary.hy_memory" in readme
+    assert "llm.mode" in readme and "hermes" in readme
+    assert "MEMORY_EMBEDDER_API_KEY" in readme
+    assert "OpenClaw" in readme and "baseUrl" in readme and "embedding_dims" in readme
     assert "restart" in readme.lower() or "reset" in readme.lower()
     assert "scripts/smoke_hy_memory.py --skip-if-unconfigured" in readme
 

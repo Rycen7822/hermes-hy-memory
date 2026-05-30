@@ -9,9 +9,13 @@ import threading
 from typing import Any, Dict, List, Optional
 
 try:
-    from .config import HyMemoryConfig
+    from .config import HyMemoryConfig, redact_config
+    from .hy_memory_llm_patch import HyMemoryLLMPatch
+    from .hermes_llm import HermesHostLLMProvider, _run_coro
 except ImportError:  # Source-local pytest imports modules top-level.
-    from config import HyMemoryConfig
+    from config import HyMemoryConfig, redact_config
+    from hy_memory_llm_patch import HyMemoryLLMPatch
+    from hermes_llm import HermesHostLLMProvider, _run_coro
 
 
 def normalize_search_memories(raw: Any) -> List[Dict[str, Any]]:
@@ -33,8 +37,22 @@ def normalize_search_memories(raw: Any) -> List[Dict[str, Any]]:
     return results
 
 
+def _effective_embedding_dims(embedder: Dict[str, Any]) -> int:
+    dims = int(embedder.get("embedding_dims") or 0)
+    model = str(embedder.get("model") or "").lower()
+    base_url = str(embedder.get("base_url") or "").lower()
+    if "qwen3" in model and "siliconflow" in base_url:
+        return 0
+    return dims
+
+
 def build_sdk_config_dict(config: HyMemoryConfig) -> Dict[str, Any]:
     """Build a hy_memory.MemoryConfig-compatible dict from resolved config."""
+    embedder = dict(config.embedder)
+    embedder["embedding_dims"] = _effective_embedding_dims(embedder)
+    llm = dict(config.llm)
+    if llm.get("mode") == "hermes":
+        llm.pop("api_key", None)
     return {
         "mode": config.mode,
         "enable_graph": config.mode == "ultra",
@@ -42,7 +60,7 @@ def build_sdk_config_dict(config: HyMemoryConfig) -> Dict[str, Any]:
             "provider": config.vector_provider,
             "collection_name": config.vector_collection_name,
             "persist_directory": str(config.vector_persist_directory),
-            "embedding_dims": config.embedder.get("embedding_dims"),
+            "embedding_dims": embedder.get("embedding_dims"),
         },
         "graph_store": {
             "provider": "kuzu",
@@ -57,8 +75,8 @@ def build_sdk_config_dict(config: HyMemoryConfig) -> Dict[str, Any]:
             "db_path": str(config.history_db_path),
             "record_searches": True,
         },
-        "llm": dict(config.llm),
-        "embedder": dict(config.embedder),
+        "llm": llm,
+        "embedder": embedder,
     }
 
 
@@ -74,11 +92,14 @@ def _sdk_available() -> bool:
 class HyMemoryClientAdapter:
     """Thread-safe lazy wrapper around hy_memory.HyMemoryClient."""
 
-    def __init__(self, config: HyMemoryConfig):
+    def __init__(self, config: HyMemoryConfig, llm_provider_factory: Any = None):
         self.config = config
         self._client: Any = None
         self._client_lock = threading.Lock()
         self._last_error = ""
+        self._llm_provider_factory = llm_provider_factory
+        self._llm_patch: HyMemoryLLMPatch | None = None
+        self._llm_patch_status: Dict[str, Any] = {"installed": False, "patched": [], "missing": [], "restored": False}
 
     @property
     def client_initialized(self) -> bool:
@@ -97,6 +118,7 @@ class HyMemoryClientAdapter:
                 return self._client
             try:
                 hy_memory = importlib.import_module("hy_memory")
+                self._install_llm_patch_if_needed()
                 client_cls = getattr(hy_memory, "HyMemoryClient")
                 self._client = client_cls.from_config(build_sdk_config_dict(self.config), mode=self.config.mode)
                 self._last_error = ""
@@ -104,6 +126,23 @@ class HyMemoryClientAdapter:
             except Exception as exc:
                 self._last_error = str(exc)
                 raise
+
+    def _install_llm_patch_if_needed(self) -> None:
+        if self.config.llm.get("mode") != "hermes":
+            return
+        if self._llm_patch is None:
+            self._llm_patch = HyMemoryLLMPatch(self._make_llm_provider)
+        self._llm_patch_status = self._llm_patch.install()
+
+    def _make_llm_provider(self, *args: Any, **kwargs: Any) -> Any:
+        if self._llm_provider_factory is not None:
+            return self._llm_provider_factory(*args, **kwargs)
+        return HermesHostLLMProvider(config=self.config, llm_config=self.config.llm)
+
+    def _restore_llm_patch(self) -> None:
+        if self._llm_patch is not None:
+            self._llm_patch_status = self._llm_patch.restore()
+            self._llm_patch = None
 
     def add(
         self,
@@ -185,23 +224,86 @@ class HyMemoryClientAdapter:
             order=order,
         )
 
-    def status(self) -> Dict[str, Any]:
-        return {
+    def status(self, deep: bool = False) -> Dict[str, Any]:
+        status = {
             "configured": True,
             "sdk_available": self.is_ready(),
             "client_initialized": self.client_initialized,
             "mode": self.config.mode,
+            "llm_mode": self.config.llm.get("mode", "hermes"),
+            "llm_task": self.config.llm.get("task", "hy_memory"),
+            "llm_patch_installed": bool(self._llm_patch_status.get("installed")),
+            "llm_patch_targets": list(self._llm_patch_status.get("patched", [])),
             "user_id": self.config.user_id,
             "agent_id": self.config.agent_id,
             "data_dir": str(self.config.data_dir),
-            "vector_store": self.config.vector_provider,
+            "vector_store": {
+                "provider": self.config.vector_provider,
+                "collection_name": self.config.vector_collection_name,
+            },
+            "embedder": redact_config(dict(self.config.embedder)),
             "auto_recall": self.config.auto_recall,
             "auto_capture": self.config.auto_capture,
             "last_error": self._last_error,
         }
+        if deep:
+            status["deep"] = True
+            status["checks"] = {
+                "sdk_import": self._check_sdk_import(),
+                "vector_store": self._check_vector_store(),
+                "embedder": self._check_embedder(),
+                "llm": self._check_llm(),
+            }
+        return status
+
+    def _check_sdk_import(self) -> Dict[str, Any]:
+        return {"status": "ok"} if self.is_ready() else {"status": "sdk_missing"}
+
+    def _check_vector_store(self) -> Dict[str, Any]:
+        try:
+            client = self.get_client()
+            if getattr(client, "_vector_store", None) is not None:
+                return {"status": "ok"}
+            if hasattr(client, "list_memories"):
+                client.list_memories(user_id=self.config.user_id, agent_id=self.config.agent_id, limit=1, offset=0, order="desc")
+                return {"status": "ok"}
+            return {"status": "skipped"}
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+
+    def _check_embedder(self) -> Dict[str, Any]:
+        if not self.config.embedder.get("api_key"):
+            return {"status": "missing_api_key", "env_var": self.config.embedder.get("api_key_env", "MEMORY_EMBEDDER_API_KEY")}
+        try:
+            client = self.get_client()
+            embed_service = getattr(client, "_embed_service", None)
+            if embed_service is None or not hasattr(embed_service, "embed"):
+                return {"status": "ok", "dims": self.config.embedder.get("embedding_dims", 0)}
+            vector = _run_coro(embed_service.embed("health check"))
+            return {"status": "ok", "dims": len(vector) if isinstance(vector, list) else self.config.embedder.get("embedding_dims", 0)}
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+
+    def _check_llm(self) -> Dict[str, Any]:
+        mode = str(self.config.llm.get("mode") or "hermes")
+        if mode == "direct" and not self.config.llm.get("api_key"):
+            return {"status": "missing_api_key", "mode": "direct", "env_var": self.config.llm.get("api_key_env", "MEMORY_LLM_API_KEY")}
+        try:
+            if mode == "hermes":
+                provider = self._make_llm_provider()
+                provider.complete_messages(
+                    messages=[{"role": "user", "content": "health check"}],
+                    max_tokens=4,
+                    temperature=0,
+                )
+                return {"status": "ok", "mode": "hermes", "task": self.config.llm.get("task", "hy_memory")}
+            return {"status": "ok", "mode": "direct"}
+        except Exception as exc:
+            return {"status": "error", "mode": mode, "message": str(exc)}
 
     def close(self) -> None:
         with self._client_lock:
             if self._client is not None and hasattr(self._client, "close"):
                 self._client.close()
             self._client = None
+            self._restore_llm_patch()

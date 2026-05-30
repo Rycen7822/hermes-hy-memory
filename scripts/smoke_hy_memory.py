@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run HY Memory provider add/search/get/delete smoke test")
     parser.add_argument("--hermes-home", default=str(Path.home() / ".hermes"))
     parser.add_argument("--skip-if-unconfigured", action="store_true", help="Exit 0 when hy_memory SDK is not importable")
+    parser.add_argument("--deep", action="store_true", help="Run deep provider status before the add/search/get/delete smoke")
     parser.add_argument("--user-id", default="hy_memory_smoke")
     args = parser.parse_args(argv)
 
@@ -70,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     provider.initialize("hy-memory-smoke", hermes_home=args.hermes_home, user_id=args.user_id, agent_identity="smoke")
     marker = f"hy-memory smoke {uuid.uuid4()}"
     try:
+        if args.deep:
+            status = _call(provider, "hy_memory_status", {"deep": True})
+            print(json.dumps({"status": status.get("checks", {})}, ensure_ascii=False))
         added = _call(provider, "hy_memory_add", {"content": marker, "metadata": {"source": "smoke"}})
         memory_id = added.get("memory_id") or added.get("id")
         searched = _call(provider, "hy_memory_search", {"query": marker, "limit": 5, "include_raw": True})

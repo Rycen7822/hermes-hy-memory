@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping
@@ -26,19 +27,53 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "collection_name": "hermes_memories",
     },
     "llm": {
-        "provider": "openai",
-        "model": "gpt-4.1-nano",
+        "mode": "hermes",
+        "task": "hy_memory",
+        "provider": "",
+        "model": "",
         "base_url": "",
+        "temperature": 0.2,
+        "max_tokens": 1024,
+        "timeout": 60,
+        "max_retries": 3,
+        "extra_body": {},
+        "api_key_env": "MEMORY_LLM_API_KEY",
     },
     "embedder": {
         "provider": "openai",
-        "model": "text-embedding-3-small",
-        "base_url": "",
-        "embedding_dims": 1536,
+        "model": "BAAI/bge-m3",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "embedding_dims": 1024,
+        "timeout": 60,
+        "max_retries": 5,
+        "retry_delay": 1.0,
+        "extra_headers": {},
+        "extra_body": {},
+        "api_key_env": "MEMORY_EMBEDDER_API_KEY",
     },
 }
 
-_SECRET_KEYS = {"llm_api_key", "embedder_api_key"}
+OPENCLAW_ALIASES: Dict[str, str] = {
+    "autoRecall": "auto_recall",
+    "autoCapture": "auto_capture",
+    "topK": "top_k",
+    "minScore": "min_score",
+    "profileLimit": "profile_limit",
+    "profileMinScore": "profile_min_score",
+    "vectorStore": "vector_store",
+    "collectionName": "collection_name",
+    "persistDirectory": "persist_directory",
+    "baseUrl": "base_url",
+    "apiKey": "api_key",
+    "dims": "embedding_dims",
+    "maxTokens": "max_tokens",
+    "maxRetries": "max_retries",
+    "retryDelay": "retry_delay",
+    "extraBody": "extra_body",
+    "extraHeaders": "extra_headers",
+}
+
+_SECRET_KEYS = {"api_key", "apiKey", "llm_api_key", "embedder_api_key"}
 
 
 @dataclass(frozen=True)
@@ -75,6 +110,65 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> Dict[st
         else:
             merged[key] = value
     return merged
+
+
+def normalize_config_dict(raw: Mapping[str, Any]) -> Dict[str, Any]:
+    """Normalize OpenClaw/camelCase config to plugin snake_case and drop secrets."""
+    warnings: list[str] = []
+
+    def walk(value: Any, path: tuple[str, ...]) -> Any:
+        if isinstance(value, Mapping):
+            normalized: Dict[str, Any] = {}
+            for original_key, item in value.items():
+                key = str(original_key)
+                mapped_key = OPENCLAW_ALIASES.get(key, key)
+                if key in _SECRET_KEYS or mapped_key in _SECRET_KEYS:
+                    warnings.append(".".join((*path, key)))
+                    continue
+                normalized[mapped_key] = walk(item, (*path, mapped_key))
+            return normalized
+        if isinstance(value, list):
+            return [walk(item, path) for item in value]
+        return value
+
+    normalized = walk(raw, ())
+    if not isinstance(normalized, dict):
+        return {}
+    if warnings:
+        normalized["_secret_warnings"] = sorted(set(warnings))
+    return normalized
+
+
+def redact_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return a copy with secret-like values redacted for status/docs/tests."""
+    secret_names = _SECRET_KEYS | {"authorization", "bearer_token", "access_token", "refresh_token", "token", "secret", "password"}
+
+    def is_secret_key(key: str) -> bool:
+        normalized_key = key.lower().replace("-", "_")
+        return (
+            normalized_key in secret_names
+            or normalized_key.endswith("_api_key")
+            or normalized_key.endswith("_token")
+            or normalized_key.endswith("_secret")
+            or normalized_key.endswith("_password")
+        )
+
+    def walk(value: Any, key: str = "") -> Any:
+        if isinstance(value, Mapping):
+            return {str(k): walk(v, str(k)) for k, v in value.items()}
+        if is_secret_key(key):
+            return "[REDACTED]" if value else value
+        return value
+
+    return walk(config)
+
+
+def _drop_internal_metadata(config: Mapping[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in config.items() if not str(key).startswith("_")}
+
+
+def _env_value(name: str) -> str:
+    return os.environ.get(name, "").strip()
 
 
 def _read_file_config(path: Path) -> Dict[str, Any]:
@@ -138,8 +232,8 @@ def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | 
     """
     home = Path(hermes_home).expanduser().resolve()
     runtime = runtime or {}
-    file_config = _read_file_config(home / "hy_memory.json")
-    raw = _deep_merge(DEFAULT_CONFIG, file_config)
+    file_config = normalize_config_dict(_read_file_config(home / "hy_memory.json"))
+    raw = _deep_merge(DEFAULT_CONFIG, _drop_internal_metadata(file_config))
 
     identity = str(runtime.get("agent_identity") or "hermes")
     runtime_user = runtime.get("user_id") or runtime.get("user_id_alt")
@@ -150,8 +244,24 @@ def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | 
     data_dir = _expand_path(raw.get("data_dir"), home, "hy_memory")
     vector_store = raw.get("vector_store") if isinstance(raw.get("vector_store"), Mapping) else {}
     llm = dict(raw.get("llm") if isinstance(raw.get("llm"), Mapping) else DEFAULT_CONFIG["llm"])
+    llm["mode"] = str(llm.get("mode") or "hermes")
+    if llm["mode"] not in {"hermes", "direct"}:
+        llm["mode"] = "hermes"
+    llm["task"] = str(llm.get("task") or "hy_memory")
+    llm["api_key_env"] = str(llm.get("api_key_env") or "MEMORY_LLM_API_KEY")
+    llm.pop("api_key", None)
+    if llm["mode"] == "direct":
+        api_key = _env_value(llm["api_key_env"])
+        if api_key:
+            llm["api_key"] = api_key
+
     embedder = dict(raw.get("embedder") if isinstance(raw.get("embedder"), Mapping) else DEFAULT_CONFIG["embedder"])
-    embedder["embedding_dims"] = _as_int(embedder.get("embedding_dims"), 1536, minimum=0)
+    embedder["embedding_dims"] = _as_int(embedder.get("embedding_dims"), 1024, minimum=0)
+    embedder["api_key_env"] = str(embedder.get("api_key_env") or "MEMORY_EMBEDDER_API_KEY")
+    embedder.pop("api_key", None)
+    embedder_api_key = _env_value(embedder["api_key_env"])
+    if embedder_api_key:
+        embedder["api_key"] = embedder_api_key
 
     mode = str(raw.get("mode") or DEFAULT_CONFIG["mode"])
     if mode not in {"lite", "pro", "ultra"}:
@@ -174,7 +284,7 @@ def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | 
         data_dir=data_dir,
         vector_provider=str(vector_store.get("provider") or "chroma"),
         vector_collection_name=str(vector_store.get("collection_name") or "hermes_memories"),
-        vector_persist_directory=data_dir / "data" / "vector_db",
+        vector_persist_directory=_expand_path(vector_store.get("persist_directory"), home, str(data_dir / "data" / "vector_db")),
         cache_db_path=data_dir / "data" / "cache.db",
         history_db_path=data_dir / "data" / "history.db",
         graph_db_path=data_dir / "data" / "kuzu_db",
@@ -188,12 +298,12 @@ def save_hy_memory_config(values: Mapping[str, Any], hermes_home: str | Path) ->
     home = Path(hermes_home).expanduser()
     home.mkdir(parents=True, exist_ok=True)
     path = home / "hy_memory.json"
-    existing = _read_file_config(path)
-    for key, value in values.items():
-        if key in _SECRET_KEYS or value is None:
-            continue
-        existing[key] = value
-    path.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    existing = normalize_config_dict(_read_file_config(path))
+    normalized_values = normalize_config_dict(values)
+    cleaned_values = _drop_internal_metadata(normalized_values)
+    cleaned_existing = _drop_internal_metadata(existing)
+    merged = _deep_merge(cleaned_existing, cleaned_values)
+    path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def get_config_schema() -> list[dict[str, Any]]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import types
 from pathlib import Path
 
@@ -71,9 +72,22 @@ class FakeHyMemoryClient:
 @pytest.fixture
 def fake_hy_memory(monkeypatch):
     FakeHyMemoryClient.created.clear()
-    module = types.SimpleNamespace(HyMemoryClient=FakeHyMemoryClient)
-    monkeypatch.setitem(__import__("sys").modules, "hy_memory", module)
-    return module
+
+    class OriginalLLMProvider:
+        pass
+
+    root = types.ModuleType("hy_memory")
+    root.__path__ = []
+    root.HyMemoryClient = FakeHyMemoryClient
+    agent = types.ModuleType("hy_memory.agent")
+    agent.__path__ = []
+    llm_provider = types.ModuleType("hy_memory.agent.llm_provider")
+    llm_provider.LLMProvider = OriginalLLMProvider
+    agent.LLMProvider = OriginalLLMProvider
+    monkeypatch.setitem(sys.modules, "hy_memory", root)
+    monkeypatch.setitem(sys.modules, "hy_memory.agent", agent)
+    monkeypatch.setitem(sys.modules, "hy_memory.agent.llm_provider", llm_provider)
+    return root
 
 
 def test_normalize_search_memories_flattens_openclaw_style_groups():

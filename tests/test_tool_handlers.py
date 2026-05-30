@@ -37,9 +37,9 @@ class FakeAdapter:
         self.calls.append(("list_memories", None, kwargs))
         return {"memories": [{"memory_id": "m1", "content": "stored fact"}]}
 
-    def status(self):
-        self.calls.append(("status", None, {}))
-        return {"configured": True, "mode": "pro"}
+    def status(self, deep=False):
+        self.calls.append(("status", None, {"deep": deep}))
+        return {"configured": True, "mode": "pro", "deep": deep}
 
 
 def defaults():
@@ -113,3 +113,4 @@ def test_get_update_list_status_dispatch():
     assert parse(handle_tool_call(adapter, defaults(), "hy_memory_list", {"limit": 5}))["count"] == 1
     assert parse(handle_tool_call(adapter, defaults(), "hy_memory_status", {}))["mode"] == "pro"
     assert [call[0] for call in adapter.calls] == ["get", "update", "list_memories", "status"]
+    assert adapter.calls[-1] == ("status", None, {"deep": False})
