@@ -6,6 +6,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Local scratch/workflow evidence directories
+.tmp*/
+
 # Keep local planning/notes private; only README.md and bundled plugin skills are repository Markdown
 *.md
 !README.md

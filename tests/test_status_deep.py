@@ -97,6 +97,83 @@ def test_deep_status_checks_sdk_vector_embedder_and_hermes_llm(monkeypatch, tmp_
     adapter.close()
 
 
+def test_managed_deep_status_starts_worker_when_runtime_is_ready(monkeypatch, tmp_path):
+    calls = {"runtime_factory": 0}
+
+    class ReadyRuntime:
+        def __init__(self, config):
+            self.config = config
+
+        def status(self, *, check_sdk=False):
+            return {
+                "mode": "managed_venv",
+                "venv_exists": True,
+                "sdk_available": True,
+                "worker_script_exists": True,
+                "worker_started": False,
+                "worker_pid": None,
+            }
+
+    def runtime_factory(config, llm_provider_factory=None):
+        calls["runtime_factory"] += 1
+        return FakeDeepClient()
+
+    monkeypatch.setenv("MEMORY_EMBEDDER_API_KEY", "embed-secret")
+    monkeypatch.setattr("client_adapter.ManagedVenvRuntime", ReadyRuntime)
+    cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
+    adapter = HyMemoryClientAdapter(
+        cfg,
+        llm_provider_factory=lambda *args, **kwargs: FakeLLMProvider(),
+        runtime_client_factory=runtime_factory,
+    )
+
+    status = adapter.status(deep=True)
+
+    assert calls["runtime_factory"] == 1
+    assert status["checks"]["worker"]["status"] == "ok"
+    assert status["checks"]["vector_store"]["status"] == "ok"
+    assert status["checks"]["embedder"] == {"status": "ok", "dims": 3}
+    assert status["runtime"]["worker_started"] is True
+    assert "managed_runtime_not_started" not in json.dumps(status)
+
+    adapter.close()
+
+
+def test_managed_deep_status_does_not_install_or_start_when_runtime_missing(monkeypatch, tmp_path):
+    class MissingRuntime:
+        def __init__(self, config):
+            self.config = config
+
+        def status(self, *, check_sdk=False):
+            return {
+                "mode": "managed_venv",
+                "venv_exists": False,
+                "sdk_available": False,
+                "worker_script_exists": True,
+            }
+
+    def runtime_factory(*args, **kwargs):
+        raise AssertionError("deep status must not start or install a missing runtime")
+
+    monkeypatch.setenv("MEMORY_EMBEDDER_API_KEY", "embed-secret")
+    monkeypatch.setattr("client_adapter.ManagedVenvRuntime", MissingRuntime)
+    cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
+    adapter = HyMemoryClientAdapter(
+        cfg,
+        llm_provider_factory=lambda *args, **kwargs: FakeLLMProvider(),
+        runtime_client_factory=runtime_factory,
+    )
+
+    status = adapter.status(deep=True)
+
+    assert status["checks"]["worker"] == {"status": "skipped", "reason": "runtime_not_installed"}
+    assert status["checks"]["vector_store"] == {"status": "skipped", "reason": "runtime_not_installed"}
+    assert status["checks"]["embedder"] == {"status": "skipped", "reason": "runtime_not_installed"}
+    assert "managed_runtime_not_started" not in json.dumps(status)
+
+    adapter.close()
+
+
 def test_deep_status_reports_missing_embedder_key_without_calling_network(monkeypatch, tmp_path):
     install_fake_sdk(monkeypatch)
     monkeypatch.delenv("MEMORY_EMBEDDER_API_KEY", raising=False)

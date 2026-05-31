@@ -39,3 +39,20 @@ def test_provider_uses_full_tool_surface_and_adapter_status(tmp_path):
     assert status["user_id"] == "u1"
     assert status["agent_id"] == "coder"
     assert status["data_dir"] == str(tmp_path / "hy_memory")
+    assert status["bundled_skill"] == {
+        "qualified_name": "hy_memory:hy-memory-curation",
+        "listed_in_skills_list": False,
+        "load_hint": "skill_view(name='hy_memory:hy-memory-curation')",
+    }
+
+
+def test_provider_system_prompt_exposes_qualified_skill_and_raw_id_rule(tmp_path):
+    provider = load_provider_class()()
+    provider.initialize("sess-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="u1")
+
+    prompt = provider.system_prompt_block()
+
+    assert "hy_memory:hy-memory-curation" in prompt
+    assert "plugin skills are qualified-only" in prompt
+    assert "raw" in prompt.lower()
+    assert "structured" in prompt.lower()

@@ -92,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
             status = _call(provider, "hy_memory_status", {"deep": True})
             print(json.dumps({"status": status.get("checks", {})}, ensure_ascii=False))
         added = _call(provider, "hy_memory_add", {"content": content, "metadata": {"source": "smoke", "marker": marker}})
+        if added.get("partial_success") or added.get("success") is False:
+            memory_id = added.get("memory_id") or added.get("raw_memory_id") or added.get("id")
+            raise RuntimeError(f"smoke add was not searchable success: {json.dumps(added, ensure_ascii=False)}")
         memory_id = added.get("memory_id") or added.get("id")
         searched = _call(provider, "hy_memory_search", {
             "query": "What banner color does the user prefer when verifying HY Memory search?",

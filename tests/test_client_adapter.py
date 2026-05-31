@@ -120,6 +120,51 @@ def test_build_sdk_config_dict_uses_profile_scoped_paths(tmp_path):
     assert sdk_config["mode"] == "pro"
 
 
+def test_add_normalizes_llm_partial_error_as_partial_success_false(monkeypatch, tmp_path, fake_hy_memory):
+    def partial_add(self, data, **kwargs):
+        self.calls.append(("add", data, kwargs))
+        return {
+            "success": True,
+            "memory_id": "raw-1",
+            "error_code": 502,
+            "error_message": "[LLM_ERROR] Connection error.",
+        }
+
+    monkeypatch.setattr(FakeHyMemoryClient, "add", partial_add)
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
+    cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder", "session_id": "sess"})
+    adapter = HyMemoryClientAdapter(cfg)
+
+    result = adapter.add("durable fact", user_id="u1", agent_id="a1", session_id="s1")
+
+    assert result["success"] is False
+    assert result["partial_success"] is True
+    assert result["memory_id"] == "raw-1"
+    assert result["raw_memory_id"] == "raw-1"
+    assert result["searchable"] is False
+    assert result["error_code"] == 502
+    assert "Connection error" in result["error_message"]
+
+    adapter.close()
+
+
+def test_add_success_keeps_raw_memory_id_without_error(tmp_path, fake_hy_memory):
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
+    cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder", "session_id": "sess"})
+    adapter = HyMemoryClientAdapter(cfg)
+
+    result = adapter.add("durable fact", user_id="u1", agent_id="a1", session_id="s1")
+
+    assert result["success"] is True
+    assert result["memory_id"] == "m1"
+    assert result["raw_memory_id"] == "m1"
+    assert "partial_success" not in result or result["partial_success"] is False
+    assert "error_code" not in result
+    assert "error_message" not in result
+
+    adapter.close()
+
+
 def test_adapter_lazy_initializes_client_and_forwards_calls(tmp_path, fake_hy_memory):
     save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder", "session_id": "sess"})

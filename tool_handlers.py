@@ -57,7 +57,7 @@ GET_SCHEMA = _schema(
 
 UPDATE_SCHEMA = _schema(
     "hy_memory_update",
-    "Update an existing HY Memory record. Search first and use an exact memory_id; do not fabricate ids.",
+    "Update an existing structured HY Memory record. Search/list first and use a structured memory_id; raw ids from add are storage records and must be deleted/re-added instead of updated.",
     {
         "memory_id": {"type": "string"},
         "content": {"type": "string", "description": "Replacement memory content."},
@@ -80,10 +80,11 @@ DELETE_SCHEMA = _schema(
 
 LIST_SCHEMA = _schema(
     "hy_memory_list",
-    "List HY Memory records for the active user scope.",
+    "List HY Memory records for the active user scope. Optional session_id is applied as a tool-side post-filter for SDK list payloads.",
     {
         "user_id": {"type": "string"},
         "agent_id": {"type": "string"},
+        "session_id": {"type": "string"},
         "limit": {"type": "integer"},
         "offset": {"type": "integer"},
         "order": {"type": "string", "enum": ["desc", "asc"]},
@@ -156,6 +157,52 @@ def _metadata(value: Any) -> Optional[Dict[str, Any]]:
     return dict(value) if isinstance(value, dict) else None
 
 
+def _add_result_id(payload: Mapping[str, Any]) -> str:
+    return str(payload.get("memory_id") or payload.get("raw_memory_id") or payload.get("id") or "")
+
+
+def _add_has_error(payload: Mapping[str, Any]) -> bool:
+    return any(payload.get(key) not in (None, "", False) for key in ("error", "error_code", "error_message"))
+
+
+def _add_error_message(payload: Mapping[str, Any]) -> str:
+    for key in ("error_message", "error"):
+        value = payload.get(key)
+        if value not in (None, "", False):
+            return str(value)
+    if payload.get("error_code") not in (None, "", False):
+        return f"HY Memory add returned error_code={payload.get('error_code')}"
+    return "HY Memory add failed"
+
+
+def _normalize_add_payload(result: Any) -> Dict[str, Any]:
+    if not isinstance(result, Mapping):
+        return {
+            "success": False,
+            "partial_success": False,
+            "searchable": False,
+            "error": "Invalid HY Memory add result",
+            "error_message": "HY Memory add returned a non-object result",
+            "raw_result": repr(result),
+        }
+    payload = dict(result)
+    memory_id = _add_result_id(payload)
+    if memory_id:
+        payload["memory_id"] = memory_id
+        payload.setdefault("raw_memory_id", memory_id)
+    if _add_has_error(payload):
+        payload["success"] = False
+        payload["partial_success"] = bool(memory_id)
+        payload["searchable"] = False
+        payload.setdefault("error_message", _add_error_message(payload))
+    else:
+        payload.setdefault("success", True)
+        payload.setdefault("partial_success", False)
+        if payload.get("success") is False:
+            payload.setdefault("searchable", False)
+    return payload
+
+
 def _messages(value: Any) -> Optional[List[Dict[str, str]]]:
     if not isinstance(value, list):
         return None
@@ -179,6 +226,84 @@ def _list_memory_items(raw: Any) -> List[Dict[str, Any]]:
     if not isinstance(raw_items, list):
         return []
     return [item for item in raw_items if isinstance(item, dict)]
+
+
+def _is_raw_shadow_memory(memory: Any) -> bool:
+    if not isinstance(memory, Mapping):
+        return False
+    raw_value = memory.get("raw")
+    raw = dict(raw_value) if isinstance(raw_value, Mapping) else {}
+    layer = str(memory.get("layer") or memory.get("memory_layer") or raw.get("layer") or raw.get("memory_layer") or "").lower()
+    status = str(memory.get("status") or raw.get("status") or "").lower()
+    memory_id = _memory_id(memory).lower()
+    return layer == "l1_raw" or status == "shadow" or memory_id.startswith("l1_raw")
+
+
+def _structured_ids_from_results(results: Any) -> List[str]:
+    ids: List[str] = []
+    seen = set()
+    if not isinstance(results, list):
+        return ids
+    for item in results:
+        if not isinstance(item, Mapping) or _is_raw_shadow_memory(item):
+            continue
+        memory_id = _memory_id(item)
+        if memory_id and memory_id not in seen:
+            seen.add(memory_id)
+            ids.append(memory_id)
+    return ids
+
+
+def _session_matches(item: Mapping[str, Any], session_id: str) -> bool:
+    if not session_id:
+        return True
+    metadata_value = item.get("metadata")
+    raw_value = item.get("raw")
+    metadata = dict(metadata_value) if isinstance(metadata_value, Mapping) else {}
+    raw = dict(raw_value) if isinstance(raw_value, Mapping) else {}
+    raw_metadata_value = raw.get("metadata")
+    raw_metadata = dict(raw_metadata_value) if isinstance(raw_metadata_value, Mapping) else {}
+    candidates = [item.get("session_id"), metadata.get("session_id"), raw.get("session_id"), raw_metadata.get("session_id")]
+    return any(str(candidate or "") == session_id for candidate in candidates)
+
+
+def _augment_add_visibility(adapter: Any, payload: Dict[str, Any], data: Any, *, user_id: str, agent_id: str, session_id: str, defaults: Mapping[str, Any]) -> Dict[str, Any]:
+    if payload.get("success") is False or payload.get("partial_success"):
+        payload.setdefault("searchable", False)
+        return payload
+    if not isinstance(data, str):
+        payload.setdefault("structured_memory_ids", [])
+        payload.setdefault("structured_count", 0)
+        payload.setdefault("searchable", False)
+        return payload
+    query = " ".join(data.split())[:500]
+    if not query:
+        payload.setdefault("structured_memory_ids", [])
+        payload.setdefault("structured_count", 0)
+        payload.setdefault("searchable", False)
+        return payload
+    try:
+        result = adapter.search(
+            query,
+            user_ids=[user_id] if user_id else [],
+            agent_ids=_scope_list(agent_id),
+            session_ids=_scope_list(session_id),
+            limit=10,
+            min_score=0,
+            profile_limit=10,
+            profile_min_score=0,
+            reader=str(defaults.get("reader", "")),
+        )
+        structured_ids = _structured_ids_from_results(result.get("results", []) if isinstance(result, Mapping) else [])
+        payload["structured_memory_ids"] = structured_ids
+        payload["structured_count"] = len(structured_ids)
+        payload["searchable"] = bool(structured_ids)
+    except Exception as exc:
+        payload["structured_memory_ids"] = []
+        payload["structured_count"] = 0
+        payload["searchable"] = False
+        payload["visibility_check_error"] = str(exc)
+    return payload
 
 
 def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, args: Mapping[str, Any]) -> str:
@@ -219,14 +344,19 @@ def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, 
             if not content and not messages:
                 return tool_error("Missing required parameter: content or messages")
             data = messages if messages else content
-            return _json(adapter.add(
+            user_id = _scope_value(args, defaults, "user_id")
+            agent_id = _scope_value(args, defaults, "agent_id")
+            session_id = _scope_value(args, defaults, "session_id")
+            result = adapter.add(
                 data,
-                user_id=_scope_value(args, defaults, "user_id"),
-                agent_id=_scope_value(args, defaults, "agent_id"),
-                session_id=_scope_value(args, defaults, "session_id"),
+                user_id=user_id,
+                agent_id=agent_id,
+                session_id=session_id,
                 metadata=_metadata(args.get("metadata")),
                 memory_at=args.get("memory_at"),
-            ))
+            )
+            payload = _normalize_add_payload(result)
+            return _json(_augment_add_visibility(adapter, payload, data, user_id=user_id, agent_id=agent_id, session_id=session_id, defaults=defaults))
 
         if tool_name == "hy_memory_get":
             memory_id = str(args.get("memory_id") or "").strip()
@@ -241,6 +371,16 @@ def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, 
                 return tool_error("Missing required parameter: memory_id")
             if not content:
                 return tool_error("Missing required parameter: content")
+            existing = adapter.get(memory_id)
+            if not existing:
+                return _json({"success": False, "error_code": "memory_not_found", "memory_id": memory_id})
+            if _is_raw_shadow_memory(existing):
+                return _json({
+                    "success": False,
+                    "error_code": "raw_id_not_structured",
+                    "raw_memory_id": memory_id,
+                    "message": "Raw/shadow memory ids are storage records, not recall records. Search or list first and update structured ids; delete and re-add raw-only records.",
+                })
             return _json(adapter.update(memory_id, content))
 
         if tool_name == "hy_memory_delete":
@@ -268,7 +408,10 @@ def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, 
                 offset=_int(args.get("offset"), 0, minimum=0, maximum=1_000_000),
                 order=str(args.get("order") or "desc") if str(args.get("order") or "desc") in {"desc", "asc"} else "desc",
             )
+            session_id = str(args.get("session_id") or "")
             raw_items = _list_memory_items(raw)
+            if session_id:
+                raw_items = [item for item in raw_items if _session_matches(item, session_id)]
             memories = [_compact_memory(item, include_raw=bool(args.get("include_raw"))) for item in raw_items]
             return _json({"memories": memories, "count": len(memories), "raw": raw})
 

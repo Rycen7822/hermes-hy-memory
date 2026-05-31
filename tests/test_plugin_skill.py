@@ -51,6 +51,10 @@ def test_register_exposes_bundled_curation_skill_for_standalone_plugin_context()
     assert content.startswith("---\nname: hy-memory-curation\n")
     assert "## Post-task Proactive Curation" in content
     assert "hy_memory_add" in content
+    assert "hy_memory:hy-memory-curation" in content
+    assert "partial_success" in content
+    assert "structured ids" in content.lower()
+    assert "raw id" in content.lower()
 
 
 def test_register_still_registers_memory_provider_for_memory_loader_context():

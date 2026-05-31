@@ -23,6 +23,8 @@ HY Memory has two user-facing plugin surfaces:
 
 HY Memory extraction is selective. `hy_memory_add` may store every accepted item as `l1_raw`, while `hy_memory_search` and `hy_memory_list` mainly return structured layers such as profile, identity, proactive, or normal memories. Durable-looking preference, identity, project convention, and reusable workflow facts are more likely to become searchable than text that says it is temporary, a test, or should be deleted.
 
+This skill is plugin-bundled and qualified-only. Load it as `hy_memory:hy-memory-curation`; it may not appear in ordinary `skills_list` or `hermes skills list` output because plugin skills are resolved through the plugin namespace.
+
 ## When to Use
 
 Load this skill before:
@@ -53,9 +55,9 @@ Use the explicit tools this way:
 | Intent | Preferred tool pattern |
 | --- | --- |
 | Recall relevant durable context | `hy_memory_search(query=..., limit=..., include_raw=false)`; use `include_raw=true` for debugging visibility. |
-| Save stable fact/preference | `hy_memory_add(content=..., metadata={"source": ..., "reason": ...})`, then search if visibility matters. |
+| Save stable fact/preference | `hy_memory_add(content=..., metadata={"source": ..., "reason": ...})`, then inspect `success`, `partial_success`, `searchable`, `structured_memory_ids`, and search if visibility matters. |
 | Verify a known id | `hy_memory_get(memory_id=...)`. |
-| Update/correct an exact item | Search or get first, then `hy_memory_update(memory_id=..., content=...)`. |
+| Update/correct an exact item | Search/list first and update structured ids returned by recall; raw ids returned by add are storage records for get/delete cleanup and must not be used with `hy_memory_update`. |
 | Delete test/candidate data | Search/list/get exact ids first, then `hy_memory_delete(memory_id=...)` or scoped `all=true, confirm=true` only for isolated test scopes. |
 | Diagnose provider state | `hy_memory_status(deep=true)`; confirm managed runtime, vector store, embedder dims, and Hermes LLM mode. |
 
@@ -79,7 +81,9 @@ Do not save:
 
 ## Search and Visibility Rules
 
-Treat `hy_memory_add` success as acceptance, not proof that the item is searchable. If visibility matters, run a search query that asks for the meaning of the fact, not only a random marker string.
+Treat `hy_memory_add` success as acceptance, not proof that the item is searchable. If visibility matters, run a search query that asks for the meaning of the fact, not only a random marker string. A partial backend/LLM failure returns `success=false` with `partial_success=true`, keeps `memory_id/raw_memory_id` for cleanup, and sets `searchable=false`; do not report that as a successful searchable memory.
+
+Successful string adds may include `structured_memory_ids` and `structured_count`. Use those structured ids, or ids returned by `hy_memory_search`/`hy_memory_list`, when correcting recall with `hy_memory_update`. The raw id returned by add is safe for `hy_memory_get` and cleanup, but it is not the id to update when search/list expose a separate structured memory.
 
 If `get` succeeds but `search/list` returns empty, inspect the layer. An `l1_raw` record may be intentionally excluded from structured search/list results until HY Memory extracts a durable layer. Rewrite future smoke content as a stable preference/identity fact instead of treating this as a storage failure.
 

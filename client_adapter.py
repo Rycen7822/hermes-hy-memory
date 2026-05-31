@@ -6,6 +6,7 @@ import importlib
 import importlib.util
 import sys
 import threading
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
 try:
@@ -96,6 +97,69 @@ def _sdk_available() -> bool:
         return False
 
 
+def _add_result_id(payload: Mapping[str, Any]) -> str:
+    return str(payload.get("memory_id") or payload.get("raw_memory_id") or payload.get("id") or "")
+
+
+def _has_add_error(payload: Mapping[str, Any]) -> bool:
+    return any(payload.get(key) not in (None, "", False) for key in ("error", "error_code", "error_message"))
+
+
+def _first_text_error(payload: Mapping[str, Any]) -> str:
+    for key in ("error_message", "error"):
+        value = payload.get(key)
+        if value not in (None, "", False):
+            return str(value)
+    if payload.get("error_code") not in (None, "", False):
+        return f"HY Memory add returned error_code={payload.get('error_code')}"
+    return "HY Memory add failed"
+
+
+def _normalize_add_result(result: Any) -> Dict[str, Any]:
+    if not isinstance(result, Mapping):
+        return {
+            "success": False,
+            "partial_success": False,
+            "searchable": False,
+            "error": "Invalid HY Memory add result",
+            "error_message": "HY Memory add returned a non-object result",
+            "raw_result": repr(result),
+        }
+
+    payload = dict(result)
+    memory_id = _add_result_id(payload)
+    if memory_id:
+        payload["memory_id"] = memory_id
+        payload.setdefault("raw_memory_id", memory_id)
+
+    if _has_add_error(payload):
+        payload["success"] = False
+        payload["partial_success"] = bool(memory_id)
+        payload["searchable"] = False
+        payload.setdefault("error_message", _first_text_error(payload))
+        return payload
+
+    payload.setdefault("success", True)
+    payload.setdefault("partial_success", False)
+    if payload.get("success") is False:
+        payload.setdefault("searchable", False)
+    return payload
+
+
+def _managed_skip_reason(runtime_status: Mapping[str, Any]) -> Optional[str]:
+    if not runtime_status.get("venv_exists"):
+        return "runtime_not_installed"
+    if not runtime_status.get("sdk_available"):
+        return "sdk_missing"
+    if not runtime_status.get("worker_script_exists"):
+        return "worker_script_missing"
+    return None
+
+
+def _managed_runtime_ready_for_health(runtime_status: Mapping[str, Any]) -> bool:
+    return _managed_skip_reason(runtime_status) is None
+
+
 class HyMemoryClientAdapter:
     """Thread-safe lazy wrapper around hy_memory.HyMemoryClient."""
 
@@ -181,7 +245,7 @@ class HyMemoryClientAdapter:
         metadata: Optional[Dict[str, Any]] = None,
         memory_at: Any = None,
     ) -> Dict[str, Any]:
-        return self.get_client().add(
+        raw = self.get_client().add(
             data,
             user_id=user_id,
             agent_id=agent_id,
@@ -189,6 +253,7 @@ class HyMemoryClientAdapter:
             metadata=metadata,
             memory_at=memory_at,
         )
+        return _normalize_add_result(raw)
 
     def search(
         self,
@@ -273,28 +338,46 @@ class HyMemoryClientAdapter:
             "embedder": redact_config(dict(self.config.embedder)),
             "auto_recall": self.config.auto_recall,
             "auto_capture": self.config.auto_capture,
+            "bundled_skill": {
+                "qualified_name": "hy_memory:hy-memory-curation",
+                "listed_in_skills_list": False,
+                "load_hint": "skill_view(name='hy_memory:hy-memory-curation')",
+            },
             "last_error": self._last_error,
         }
         if deep:
             status["deep"] = True
-            status["runtime"] = self._runtime_status(check_sdk=True)
-            status["checks"] = {
+            deep_runtime_status = self._runtime_status(check_sdk=True)
+            worker_check = self._start_worker_for_deep_status(deep_runtime_status)
+            checks = {
                 "sdk_import": self._check_sdk_import(),
+                "worker": worker_check,
                 "vector_store": self._check_vector_store(),
                 "embedder": self._check_embedder(),
                 "llm": self._check_llm(),
             }
+            status["runtime"] = self._runtime_status(check_sdk=True)
+            status["client_initialized"] = self.client_initialized
+            status["checks"] = checks
         return status
 
     def _runtime_status(self, *, check_sdk: bool) -> Dict[str, Any]:
         if self._uses_managed_runtime():
-            if self._client is not None and hasattr(self._client, "status"):
-                try:
-                    status = dict(self._client.status(check_sdk=check_sdk))
-                except TypeError:
-                    status = dict(self._client.status())
-                status.setdefault("mode", "managed_venv")
-                status.setdefault("client", "worker")
+            if self._client is not None:
+                if hasattr(self._client, "status"):
+                    try:
+                        status = dict(self._client.status(check_sdk=check_sdk))
+                    except TypeError:
+                        status = dict(self._client.status())
+                    status.setdefault("mode", "managed_venv")
+                    status.setdefault("client", "worker")
+                    status.setdefault("worker_started", True)
+                    status.setdefault("worker_pid", getattr(self._client, "pid", None))
+                    return status
+                status = ManagedVenvRuntime(self.config).status(check_sdk=check_sdk)
+                status["client"] = "worker"
+                status["worker_started"] = True
+                status["worker_pid"] = getattr(self._client, "pid", None)
                 return status
             status = ManagedVenvRuntime(self.config).status(check_sdk=check_sdk)
             status["client"] = "worker"
@@ -302,6 +385,18 @@ class HyMemoryClientAdapter:
             status["worker_pid"] = None
             return status
         return {"mode": "in_process", "client": "sdk", "sdk_available": _sdk_available()}
+
+    def _start_worker_for_deep_status(self, runtime_status: Mapping[str, Any]) -> Dict[str, Any]:
+        if not self._uses_managed_runtime():
+            return {"status": "skipped", "reason": "in_process_runtime"}
+        skip_reason = _managed_skip_reason(runtime_status)
+        if not _managed_runtime_ready_for_health(runtime_status):
+            return {"status": "skipped", "reason": skip_reason or "managed_runtime_not_ready"}
+        try:
+            self.get_client()
+            return {"status": "ok"}
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
 
     def _check_sdk_import(self) -> Dict[str, Any]:
         if self._uses_managed_runtime():
@@ -315,7 +410,8 @@ class HyMemoryClientAdapter:
 
     def _check_vector_store(self) -> Dict[str, Any]:
         if self._uses_managed_runtime() and self._client is None:
-            return {"status": "skipped", "reason": "managed_runtime_not_started"}
+            runtime_status = self._runtime_status(check_sdk=True)
+            return {"status": "skipped", "reason": _managed_skip_reason(runtime_status) or "worker_not_started"}
         try:
             client = self.get_client()
             if getattr(client, "_vector_store", None) is not None:
@@ -329,9 +425,13 @@ class HyMemoryClientAdapter:
 
     def _check_embedder(self) -> Dict[str, Any]:
         if self._uses_managed_runtime() and self._client is None:
+            runtime_status = self._runtime_status(check_sdk=True)
+            skip_reason = _managed_skip_reason(runtime_status)
+            if skip_reason is not None:
+                return {"status": "skipped", "reason": skip_reason}
             if not self.config.embedder.get("api_key"):
                 return {"status": "missing_api_key", "env_var": self.config.embedder.get("api_key_env", "MEMORY_EMBEDDER_API_KEY")}
-            return {"status": "skipped", "reason": "managed_runtime_not_started"}
+            return {"status": "skipped", "reason": "worker_not_started"}
         if not self.config.embedder.get("api_key"):
             return {"status": "missing_api_key", "env_var": self.config.embedder.get("api_key_env", "MEMORY_EMBEDDER_API_KEY")}
         try:

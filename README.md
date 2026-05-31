@@ -35,6 +35,8 @@ The plugin ships `hy_memory:hy-memory-curation`, adapted from the EverOS-Hermes 
 /skill hy_memory:hy-memory-curation
 ```
 
+Plugin-bundled skills are qualified-only in the current Hermes Agent plugin model. `hy_memory:hy-memory-curation` can load by qualified name even when ordinary `skills_list` or `hermes skills list` output does not show it; this plugin surfaces the qualified load path in `hy_memory_status` and the system prompt instead of modifying Hermes Agent core.
+
 The skill also documents HY Memory-specific behavior: successful `hy_memory_add` calls may remain as `l1_raw`, while `hy_memory_search` and `hy_memory_list` mainly return structured layers such as identity/profile/normal memories. For live search smoke tests, use durable-looking preference or identity facts and keep cleanup intent in metadata, then delete the isolated test scope.
 
 ## Runtime architecture
@@ -184,18 +186,25 @@ Check local-only provider status without requiring backend calls or runtime inst
 python cli.py status --hermes-home "$HERMES_HOME"
 ```
 
-Run explicit deep status checks when the runtime and credentials are configured. Deep status inspects managed runtime paths and Hermes LLM routing, but it does not silently install missing packages:
+Run explicit deep status checks when the runtime and credentials are configured. Deep status inspects managed runtime paths and Hermes LLM routing, but it does not silently install missing packages. If the managed runtime is installed and the SDK is importable, deep status starts the worker and performs real vector/embedder health checks; otherwise it reports precise skipped reasons such as `runtime_not_installed` or `sdk_missing`:
 
 ```bash
 python cli.py status --deep --hermes-home "$HERMES_HOME"
 ```
 
-Run the optional real-backend smoke. It exits successfully with `SKIP` when the current Python environment lacks `hy_memory` or required backend configuration:
+Run the optional real-backend smoke. It exits successfully with `SKIP` when the current Python environment lacks `hy_memory` or required backend configuration. Partial add results are treated as failures, not searchable success, and the script always attempts scoped cleanup:
 
 ```bash
 python scripts/smoke_hy_memory.py --skip-if-unconfigured --hermes-home "$HERMES_HOME"
 python scripts/smoke_hy_memory.py --skip-if-unconfigured --deep --hermes-home "$HERMES_HOME"
 ```
+
+## Tool result contracts
+
+- `hy_memory_add` returns `success=false`, `partial_success=true`, `memory_id/raw_memory_id`, and `searchable=false` when HY Memory stores a raw record but LLM/backend extraction fails. Treat that as a partial failure and clean up the raw id if needed.
+- Successful string adds may include `structured_memory_ids`, `structured_count`, and `searchable`. Use these structured ids, or ids returned by `hy_memory_search`/`hy_memory_list`, for `hy_memory_update`.
+- Raw ids returned directly by add are storage records for `hy_memory_get` and cleanup. They are not structured recall ids; `hy_memory_update` rejects raw/shadow ids with `error_code="raw_id_not_structured"`.
+- `hy_memory_list` accepts `session_id` and applies it as a tool-side post-filter over SDK list payloads.
 
 ## Notes
 

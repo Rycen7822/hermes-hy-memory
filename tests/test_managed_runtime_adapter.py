@@ -80,7 +80,10 @@ def test_adapter_default_managed_runtime_uses_worker_factory_without_importing_s
 
     assert adapter.is_ready() is True
     result = adapter.add("hello", user_id="u1", agent_id="a1", session_id="s1")
-    assert result == {"memory_id": "managed-1"}
+    assert result["memory_id"] == "managed-1"
+    assert result["raw_memory_id"] == "managed-1"
+    assert result["success"] is True
+    assert result["partial_success"] is False
     assert len(created) == 1
     assert created[0][0] is cfg
     assert adapter.client_initialized is True

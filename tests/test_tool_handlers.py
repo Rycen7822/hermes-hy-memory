@@ -87,9 +87,16 @@ def test_add_accepts_content_or_messages():
     messages_result = parse(handle_tool_call(adapter, defaults(), "hy_memory_add", {"messages": [{"role": "user", "content": "hello"}]}))
 
     assert content_result["memory_id"] == "m2"
+    assert content_result["structured_memory_ids"] == ["m1"]
+    assert content_result["structured_count"] == 1
+    assert content_result["searchable"] is True
     assert messages_result["memory_id"] == "m2"
+    assert messages_result["structured_memory_ids"] == []
+    assert messages_result["structured_count"] == 0
+    assert messages_result["searchable"] is False
     assert adapter.calls[0] == ("add", "fact", {"user_id": "u-default", "agent_id": "a-default", "session_id": "s-default", "metadata": {"source": "test"}, "memory_at": None})
-    assert adapter.calls[1][1] == [{"role": "user", "content": "hello"}]
+    assert adapter.calls[1] == ("search", "fact", {"user_ids": ["u-default"], "agent_ids": ["a-default"], "session_ids": ["s-default"], "limit": 10, "min_score": 0, "profile_limit": 10, "profile_min_score": 0, "reader": ""})
+    assert adapter.calls[2][1] == [{"role": "user", "content": "hello"}]
 
 
 def test_delete_requires_exact_id_or_confirmed_bulk_delete():
@@ -113,7 +120,8 @@ def test_get_update_list_status_dispatch():
     assert parse(handle_tool_call(adapter, defaults(), "hy_memory_update", {"memory_id": "m1", "content": "new"}))["memory_id"] == "m1"
     assert parse(handle_tool_call(adapter, defaults(), "hy_memory_list", {"limit": 5}))["count"] == 1
     assert parse(handle_tool_call(adapter, defaults(), "hy_memory_status", {}))["mode"] == "pro"
-    assert [call[0] for call in adapter.calls] == ["get", "update", "list_memories", "status"]
+    assert [call[0] for call in adapter.calls] == ["get", "get", "update", "list_memories", "status"]
+    assert adapter.calls[1] == ("get", "m1", {})
     assert adapter.calls[-1] == ("status", None, {"deep": False})
 
 
@@ -125,3 +133,80 @@ def test_list_accepts_hy_memory_sdk_vdb_bucket_shape():
     assert result["count"] == 1
     assert result["memories"][0]["id"] == "m-sdk"
     assert result["raw"]["vdb"]["total"] == 1
+
+
+def test_add_partial_error_is_not_reported_as_success():
+    class PartialAddAdapter(FakeAdapter):
+        def add(self, data, **kwargs):
+            self.calls.append(("add", data, kwargs))
+            return {
+                "success": True,
+                "memory_id": "raw-1",
+                "error_code": 502,
+                "error_message": "[LLM_ERROR] Connection error.",
+            }
+
+    result = parse(handle_tool_call(PartialAddAdapter(), defaults(), "hy_memory_add", {"content": "durable fact"}))
+
+    assert result["success"] is False
+    assert result["partial_success"] is True
+    assert result["memory_id"] == "raw-1"
+    assert result["raw_memory_id"] == "raw-1"
+    assert result["searchable"] is False
+    assert result["error_code"] == 502
+
+
+def test_update_rejects_raw_shadow_memory_before_mutation():
+    class RawAdapter(FakeAdapter):
+        def get(self, memory_id):
+            self.calls.append(("get", memory_id, {}))
+            return {"memory_id": memory_id, "content": "raw", "layer": "l1_raw", "status": "shadow"}
+
+        def update(self, memory_id, content):
+            raise AssertionError("raw ids must not be mutated")
+
+    adapter = RawAdapter()
+
+    result = parse(handle_tool_call(adapter, defaults(), "hy_memory_update", {"memory_id": "raw-1", "content": "new"}))
+
+    assert result["success"] is False
+    assert result["error_code"] == "raw_id_not_structured"
+    assert result["raw_memory_id"] == "raw-1"
+    assert adapter.calls == [("get", "raw-1", {})]
+
+
+def test_update_allows_structured_memory_id():
+    class StructuredAdapter(FakeAdapter):
+        def get(self, memory_id):
+            self.calls.append(("get", memory_id, {}))
+            return {"memory_id": memory_id, "content": "old", "layer": "l4_identity"}
+
+    adapter = StructuredAdapter()
+
+    result = parse(handle_tool_call(adapter, defaults(), "hy_memory_update", {"memory_id": "structured-1", "content": "new"}))
+
+    assert result["success"] is True
+    assert result["memory_id"] == "structured-1"
+    assert adapter.calls == [("get", "structured-1", {}), ("update", "structured-1", {"content": "new"})]
+
+
+def test_list_filters_session_id_from_vdb_payload():
+    schemas = {schema["name"]: schema for schema in get_tool_schemas()}
+    assert "session_id" in schemas["hy_memory_list"]["parameters"]["properties"]
+    adapter = FakeAdapter(
+        list_payload={
+            "vdb": {
+                "memories": [
+                    {"memory_id": "keep", "content": "in session", "metadata": {"session_id": "s-keep"}},
+                    {"memory_id": "drop", "content": "other session", "metadata": {"session_id": "s-drop"}},
+                    {"memory_id": "keep-raw", "content": "nested session", "raw": {"metadata": {"session_id": "s-keep"}}},
+                ],
+                "total": 3,
+            }
+        }
+    )
+
+    result = parse(handle_tool_call(adapter, defaults(), "hy_memory_list", {"limit": 5, "session_id": "s-keep"}))
+
+    assert result["count"] == 2
+    assert [item["id"] for item in result["memories"]] == ["keep", "keep-raw"]
