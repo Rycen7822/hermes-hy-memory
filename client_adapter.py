@@ -28,7 +28,12 @@ def normalize_search_memories(raw: Any) -> List[Dict[str, Any]]:
         return []
 
     results: List[Dict[str, Any]] = []
-    preferred = {"profile", "proactive", "normal"}
+    nested_memories = raw.get("memories")
+    if isinstance(nested_memories, dict):
+        results.extend(normalize_search_memories(nested_memories))
+    elif isinstance(nested_memories, list):
+        results.extend(item for item in nested_memories if isinstance(item, dict))
+    preferred = {"profile", "proactive", "normal", "memories"}
     for key in ("profile", "proactive", "normal"):
         value = raw.get(key)
         if isinstance(value, list):

@@ -64,16 +64,42 @@ class ParentBridgeLLMProvider:
         tool_choice: Any = None,
         **kwargs: Any,
     ) -> Any:
+        payload = {
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stop": stop,
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        payload.update({key: value for key, value in kwargs.items() if key in {"messages", "extra_body"}})
+        return await self._complete_payload(payload)
+
+    async def complete_messages(
+        self,
+        messages: list,
+        max_tokens: int = 500,
+        temperature: float = 0.7,
+        stop: Any = None,
+        tools: Any = None,
+        tool_choice: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        prompt = "\n".join(str(item.get("content", "")) for item in messages if isinstance(item, dict))
+        payload = {
+            "messages": messages,
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stop": stop,
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        payload.update({key: value for key, value in kwargs.items() if key in {"extra_body"}})
+        return await self._complete_payload(payload)
+
+    async def _complete_payload(self, payload: Dict[str, Any]) -> Any:
         try:
-            payload = {
-                "prompt": prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stop": stop,
-                "tools": tools,
-                "tool_choice": tool_choice,
-            }
-            payload.update({key: value for key, value in kwargs.items() if key in {"messages", "extra_body"}})
             response = await asyncio.to_thread(request_parent_llm, payload)
             self.total_calls += 1
             self.total_tokens += int(response.get("tokens_used", 0) or 0)
@@ -94,9 +120,7 @@ class ParentBridgeLLMProvider:
         return await self.complete(prompt, **kwargs)
 
     async def chat(self, messages: list, max_tokens: int = 500, temperature: float = 0.7, **kwargs: Any) -> Any:
-        prompt = "\n".join(str(item.get("content", "")) for item in messages if isinstance(item, dict))
-        kwargs["messages"] = messages
-        return await self.complete(prompt, max_tokens=max_tokens, temperature=temperature, **kwargs)
+        return await self.complete_messages(messages, max_tokens=max_tokens, temperature=temperature, **kwargs)
 
     def get_stats(self) -> Dict[str, Any]:
         attempts = self.total_calls + self.errors

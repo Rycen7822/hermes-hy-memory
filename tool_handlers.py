@@ -170,6 +170,17 @@ def _messages(value: Any) -> Optional[List[Dict[str, str]]]:
     return messages or None
 
 
+def _list_memory_items(raw: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return []
+    raw_items = raw.get("memories")
+    if raw_items is None and isinstance(raw.get("vdb"), dict):
+        raw_items = raw["vdb"].get("memories")
+    if not isinstance(raw_items, list):
+        return []
+    return [item for item in raw_items if isinstance(item, dict)]
+
+
 def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, args: Mapping[str, Any]) -> str:
     args = args or {}
 
@@ -257,10 +268,8 @@ def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, 
                 offset=_int(args.get("offset"), 0, minimum=0, maximum=1_000_000),
                 order=str(args.get("order") or "desc") if str(args.get("order") or "desc") in {"desc", "asc"} else "desc",
             )
-            raw_items = raw.get("memories", []) if isinstance(raw, dict) else []
-            if not isinstance(raw_items, list):
-                raw_items = []
-            memories = [_compact_memory(item, include_raw=bool(args.get("include_raw"))) for item in raw_items if isinstance(item, dict)]
+            raw_items = _list_memory_items(raw)
+            memories = [_compact_memory(item, include_raw=bool(args.get("include_raw"))) for item in raw_items]
             return _json({"memories": memories, "count": len(memories), "raw": raw})
 
         return tool_error(f"Unknown tool: {tool_name}")

@@ -29,6 +29,22 @@ def _sdk_available() -> bool:
         return False
 
 
+def _managed_runtime_sdk_available(hermes_home: str) -> bool:
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        from config import load_hy_memory_config
+        from runtime import ManagedVenvRuntime
+
+        cfg = load_hy_memory_config(hermes_home, {"agent_identity": "smoke", "session_id": "hy-memory-smoke"})
+        if cfg.runtime.get("mode") != "managed_venv":
+            return False
+        return ManagedVenvRuntime(cfg).check_sdk_available()
+    except Exception:
+        return False
+
+
 def _load_provider_class():
     _ensure_hermes_agent_on_path()
     root = Path(__file__).resolve().parents[1]
@@ -60,23 +76,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--user-id", default="hy_memory_smoke")
     args = parser.parse_args(argv)
 
-    if not _sdk_available():
+    if not _sdk_available() and not _managed_runtime_sdk_available(args.hermes_home):
         if args.skip_if_unconfigured:
-            print("SKIP: hy_memory SDK is not installed in this Python environment")
+            print("SKIP: hy_memory SDK/runtime is not installed in this environment")
             return 0
-        print("FAIL: hy_memory SDK is not installed", file=sys.stderr)
+        print("FAIL: hy_memory SDK/runtime is not installed", file=sys.stderr)
         return 2
 
     provider = _load_provider_class()()
     provider.initialize("hy-memory-smoke", hermes_home=args.hermes_home, user_id=args.user_id, agent_identity="smoke")
     marker = f"hy-memory smoke {uuid.uuid4()}"
+    content = f"The user prefers amber smoke-test banners when verifying HY Memory search. Tracking marker: {marker}."
     try:
         if args.deep:
             status = _call(provider, "hy_memory_status", {"deep": True})
             print(json.dumps({"status": status.get("checks", {})}, ensure_ascii=False))
-        added = _call(provider, "hy_memory_add", {"content": marker, "metadata": {"source": "smoke"}})
+        added = _call(provider, "hy_memory_add", {"content": content, "metadata": {"source": "smoke", "marker": marker}})
         memory_id = added.get("memory_id") or added.get("id")
-        searched = _call(provider, "hy_memory_search", {"query": marker, "limit": 5, "include_raw": True})
+        searched = _call(provider, "hy_memory_search", {
+            "query": "What banner color does the user prefer when verifying HY Memory search?",
+            "limit": 5,
+            "min_score": 0,
+            "profile_min_score": 0,
+            "include_raw": True,
+        })
         if not searched.get("count"):
             raise RuntimeError("smoke search returned no results")
         if not memory_id:
@@ -93,6 +116,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     finally:
+        try:
+            _call(provider, "hy_memory_delete", {"all": True, "confirm": True, "user_id": args.user_id, "agent_id": "smoke", "session_id": "hy-memory-smoke"})
+        except Exception:
+            pass
         provider.shutdown()
 
 

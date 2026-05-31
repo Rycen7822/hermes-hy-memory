@@ -6,8 +6,9 @@ from tool_handlers import get_tool_schemas, handle_tool_call
 
 
 class FakeAdapter:
-    def __init__(self):
+    def __init__(self, list_payload=None):
         self.calls = []
+        self.list_payload = list_payload or {"memories": [{"memory_id": "m1", "content": "stored fact"}]}
 
     def search(self, query, **kwargs):
         self.calls.append(("search", query, kwargs))
@@ -35,7 +36,7 @@ class FakeAdapter:
 
     def list_memories(self, **kwargs):
         self.calls.append(("list_memories", None, kwargs))
-        return {"memories": [{"memory_id": "m1", "content": "stored fact"}]}
+        return self.list_payload
 
     def status(self, deep=False):
         self.calls.append(("status", None, {"deep": deep}))
@@ -114,3 +115,13 @@ def test_get_update_list_status_dispatch():
     assert parse(handle_tool_call(adapter, defaults(), "hy_memory_status", {}))["mode"] == "pro"
     assert [call[0] for call in adapter.calls] == ["get", "update", "list_memories", "status"]
     assert adapter.calls[-1] == ("status", None, {"deep": False})
+
+
+def test_list_accepts_hy_memory_sdk_vdb_bucket_shape():
+    adapter = FakeAdapter(list_payload={"vdb": {"memories": [{"memory_id": "m-sdk", "content": "sdk fact"}], "total": 1}, "elapsed_ms": 2.3})
+
+    result = parse(handle_tool_call(adapter, defaults(), "hy_memory_list", {"limit": 5}))
+
+    assert result["count"] == 1
+    assert result["memories"][0]["id"] == "m-sdk"
+    assert result["raw"]["vdb"]["total"] == 1

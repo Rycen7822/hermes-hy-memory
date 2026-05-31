@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import textwrap
 from pathlib import Path
 
 from hermes_llm import HermesLLMResponse
+from hy_memory_worker import ParentBridgeLLMProvider
 from runtime import JsonlWorkerProcess
 
 
@@ -98,4 +100,38 @@ def test_jsonl_worker_process_handles_llm_callback_roundtrip(tmp_path):
         "temperature": 0.1,
         "tools": [{"type": "function", "function": {"name": "store"}}],
         "tool_choice": "auto",
+    }]
+
+
+def test_parent_bridge_llm_provider_supports_complete_messages(monkeypatch):
+    payloads = []
+
+    def fake_request_parent_llm(payload):
+        payloads.append(payload)
+        return {
+            "content": "structured ok",
+            "tokens_used": 11,
+            "prompt_tokens": 5,
+            "completion_tokens": 6,
+            "model": "gpt-5.4-mini",
+            "finish_reason": "stop",
+        }
+
+    monkeypatch.setattr("hy_memory_worker.request_parent_llm", fake_request_parent_llm)
+    provider = ParentBridgeLLMProvider()
+    messages = [{"role": "system", "content": "extract"}, {"role": "user", "content": "fact"}]
+
+    response = asyncio.run(provider.complete_messages(messages=messages, max_tokens=33, temperature=0.2))
+
+    assert response.content == "structured ok"
+    assert response.model == "gpt-5.4-mini"
+    assert provider.total_calls == 1
+    assert payloads == [{
+        "messages": messages,
+        "prompt": "extract\nfact",
+        "max_tokens": 33,
+        "temperature": 0.2,
+        "stop": None,
+        "tools": None,
+        "tool_choice": None,
     }]

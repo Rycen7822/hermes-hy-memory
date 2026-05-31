@@ -60,6 +60,7 @@ def install_fake_sdk(monkeypatch):
 
 
 def test_shallow_status_is_local_only_and_redacted(monkeypatch, tmp_path):
+    monkeypatch.delenv("MEMORY_EMBEDDER_API_KEY", raising=False)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
     adapter = HyMemoryClientAdapter(cfg)
     monkeypatch.setattr(adapter, "get_client", lambda: (_ for _ in ()).throw(AssertionError("shallow status initialized client")))

@@ -100,6 +100,8 @@ def test_normalize_search_memories_flattens_openclaw_style_groups():
     }
 
     assert [item["memory_id"] for item in normalize_search_memories(raw)] == ["p", "a", "n", "c"]
+    assert normalize_search_memories({"memories": [{"memory_id": "m-sdk"}], "elapsed_ms": 1.2}) == [{"memory_id": "m-sdk"}]
+    assert normalize_search_memories({"memories": {"profile": [], "proactive": [], "normal": [{"memory_id": "m-grouped"}]}}) == [{"memory_id": "m-grouped"}]
     assert normalize_search_memories([{"memory_id": "list"}]) == [{"memory_id": "list"}]
     assert normalize_search_memories(None) == []
 
