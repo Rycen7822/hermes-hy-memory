@@ -93,6 +93,7 @@ def test_llm_patch_replaces_known_original_references_and_restores(monkeypatch):
 
 def test_client_adapter_installs_patch_before_hy_memory_client_construction(monkeypatch, tmp_path):
     modules, fake_client = install_fake_hy_memory_tree(monkeypatch, include_client=True)
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
     adapter = HyMemoryClientAdapter(cfg, llm_provider_factory=lambda *args, **kwargs: "hermes-provider")
 
@@ -111,7 +112,7 @@ def test_client_adapter_installs_patch_before_hy_memory_client_construction(monk
 
 def test_client_adapter_direct_mode_does_not_patch(monkeypatch, tmp_path):
     modules, fake_client = install_fake_hy_memory_tree(monkeypatch, include_client=True)
-    save_hy_memory_config({"llm": {"mode": "direct"}}, tmp_path)
+    save_hy_memory_config({"runtime": {"mode": "in_process"}, "llm": {"mode": "direct"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
     adapter = HyMemoryClientAdapter(cfg, llm_provider_factory=lambda *args, **kwargs: "hermes-provider")
 

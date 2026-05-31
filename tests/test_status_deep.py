@@ -5,7 +5,7 @@ import sys
 import types
 
 from client_adapter import HyMemoryClientAdapter
-from config import load_hy_memory_config
+from config import load_hy_memory_config, save_hy_memory_config
 from hermes_llm import HermesLLMResponse
 from tool_handlers import handle_tool_call
 
@@ -79,6 +79,7 @@ def test_deep_status_checks_sdk_vector_embedder_and_hermes_llm(monkeypatch, tmp_
     FakeHyMemoryClient.created.clear()
     install_fake_sdk(monkeypatch)
     monkeypatch.setenv("MEMORY_EMBEDDER_API_KEY", "embed-secret")
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
     adapter = HyMemoryClientAdapter(cfg, llm_provider_factory=lambda *args, **kwargs: FakeLLMProvider())
 
@@ -98,6 +99,7 @@ def test_deep_status_checks_sdk_vector_embedder_and_hermes_llm(monkeypatch, tmp_
 def test_deep_status_reports_missing_embedder_key_without_calling_network(monkeypatch, tmp_path):
     install_fake_sdk(monkeypatch)
     monkeypatch.delenv("MEMORY_EMBEDDER_API_KEY", raising=False)
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
     adapter = HyMemoryClientAdapter(cfg, llm_provider_factory=lambda *args, **kwargs: FakeLLMProvider())
 

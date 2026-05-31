@@ -20,6 +20,11 @@ class HermesLLMResponse:
     tool_calls: Optional[List[Dict[str, Any]]] = None
     raw: Any = field(default=None, repr=False)
 
+    def __await__(self):
+        async def _done():
+            return self
+        return _done().__await__()
+
 
 class HermesHostLLMProvider:
     """HY Memory-compatible LLM provider that routes through Hermes auxiliary LLM calls."""

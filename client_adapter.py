@@ -12,10 +12,12 @@ try:
     from .config import HyMemoryConfig, redact_config
     from .hy_memory_llm_patch import HyMemoryLLMPatch
     from .hermes_llm import HermesHostLLMProvider, _run_coro
+    from .runtime import ManagedHyMemoryWorkerClient, ManagedVenvRuntime
 except ImportError:  # Source-local pytest imports modules top-level.
     from config import HyMemoryConfig, redact_config
     from hy_memory_llm_patch import HyMemoryLLMPatch
     from hermes_llm import HermesHostLLMProvider, _run_coro
+    from runtime import ManagedHyMemoryWorkerClient, ManagedVenvRuntime
 
 
 def normalize_search_memories(raw: Any) -> List[Dict[str, Any]]:
@@ -92,12 +94,13 @@ def _sdk_available() -> bool:
 class HyMemoryClientAdapter:
     """Thread-safe lazy wrapper around hy_memory.HyMemoryClient."""
 
-    def __init__(self, config: HyMemoryConfig, llm_provider_factory: Any = None):
+    def __init__(self, config: HyMemoryConfig, llm_provider_factory: Any = None, runtime_client_factory: Any = None):
         self.config = config
         self._client: Any = None
         self._client_lock = threading.Lock()
         self._last_error = ""
         self._llm_provider_factory = llm_provider_factory
+        self._runtime_client_factory = runtime_client_factory
         self._llm_patch: HyMemoryLLMPatch | None = None
         self._llm_patch_status: Dict[str, Any] = {"installed": False, "patched": [], "missing": [], "restored": False}
 
@@ -110,13 +113,23 @@ class HyMemoryClientAdapter:
         return self._last_error
 
     def is_ready(self) -> bool:
+        if self._uses_managed_runtime():
+            runtime_status = ManagedVenvRuntime(self.config).status(check_sdk=False)
+            return bool(runtime_status.get("worker_script_exists"))
         return _sdk_available()
+
+    def _uses_managed_runtime(self) -> bool:
+        return str(self.config.runtime.get("mode") or "managed_venv") == "managed_venv"
 
     def get_client(self) -> Any:
         with self._client_lock:
             if self._client is not None:
                 return self._client
             try:
+                if self._uses_managed_runtime():
+                    self._client = self._create_managed_client()
+                    self._last_error = ""
+                    return self._client
                 hy_memory = importlib.import_module("hy_memory")
                 self._install_llm_patch_if_needed()
                 client_cls = getattr(hy_memory, "HyMemoryClient")
@@ -133,6 +146,15 @@ class HyMemoryClientAdapter:
         if self._llm_patch is None:
             self._llm_patch = HyMemoryLLMPatch(self._make_llm_provider)
         self._llm_patch_status = self._llm_patch.install()
+
+    def _create_managed_client(self) -> Any:
+        if self._runtime_client_factory is not None:
+            return self._runtime_client_factory(self.config, llm_provider_factory=self._make_llm_provider)
+        return ManagedHyMemoryWorkerClient(
+            self.config,
+            build_sdk_config_dict(self.config),
+            llm_provider_factory=self._make_llm_provider,
+        )
 
     def _make_llm_provider(self, *args: Any, **kwargs: Any) -> Any:
         if self._llm_provider_factory is not None:
@@ -225,10 +247,12 @@ class HyMemoryClientAdapter:
         )
 
     def status(self, deep: bool = False) -> Dict[str, Any]:
+        runtime_status = self._runtime_status(check_sdk=False)
         status = {
             "configured": True,
             "sdk_available": self.is_ready(),
             "client_initialized": self.client_initialized,
+            "runtime": runtime_status,
             "mode": self.config.mode,
             "llm_mode": self.config.llm.get("mode", "hermes"),
             "llm_task": self.config.llm.get("task", "hy_memory"),
@@ -248,6 +272,7 @@ class HyMemoryClientAdapter:
         }
         if deep:
             status["deep"] = True
+            status["runtime"] = self._runtime_status(check_sdk=True)
             status["checks"] = {
                 "sdk_import": self._check_sdk_import(),
                 "vector_store": self._check_vector_store(),
@@ -256,10 +281,36 @@ class HyMemoryClientAdapter:
             }
         return status
 
+    def _runtime_status(self, *, check_sdk: bool) -> Dict[str, Any]:
+        if self._uses_managed_runtime():
+            if self._client is not None and hasattr(self._client, "status"):
+                try:
+                    status = dict(self._client.status(check_sdk=check_sdk))
+                except TypeError:
+                    status = dict(self._client.status())
+                status.setdefault("mode", "managed_venv")
+                status.setdefault("client", "worker")
+                return status
+            status = ManagedVenvRuntime(self.config).status(check_sdk=check_sdk)
+            status["client"] = "worker"
+            status["worker_started"] = False
+            status["worker_pid"] = None
+            return status
+        return {"mode": "in_process", "client": "sdk", "sdk_available": _sdk_available()}
+
     def _check_sdk_import(self) -> Dict[str, Any]:
+        if self._uses_managed_runtime():
+            runtime_status = self._runtime_status(check_sdk=True)
+            if runtime_status.get("sdk_available"):
+                return {"status": "ok", "runtime": "managed_venv"}
+            if not runtime_status.get("venv_exists"):
+                return {"status": "runtime_not_installed", "runtime": "managed_venv"}
+            return {"status": "sdk_missing", "runtime": "managed_venv"}
         return {"status": "ok"} if self.is_ready() else {"status": "sdk_missing"}
 
     def _check_vector_store(self) -> Dict[str, Any]:
+        if self._uses_managed_runtime() and self._client is None:
+            return {"status": "skipped", "reason": "managed_runtime_not_started"}
         try:
             client = self.get_client()
             if getattr(client, "_vector_store", None) is not None:
@@ -272,6 +323,10 @@ class HyMemoryClientAdapter:
             return {"status": "error", "message": str(exc)}
 
     def _check_embedder(self) -> Dict[str, Any]:
+        if self._uses_managed_runtime() and self._client is None:
+            if not self.config.embedder.get("api_key"):
+                return {"status": "missing_api_key", "env_var": self.config.embedder.get("api_key_env", "MEMORY_EMBEDDER_API_KEY")}
+            return {"status": "skipped", "reason": "managed_runtime_not_started"}
         if not self.config.embedder.get("api_key"):
             return {"status": "missing_api_key", "env_var": self.config.embedder.get("api_key_env", "MEMORY_EMBEDDER_API_KEY")}
         try:

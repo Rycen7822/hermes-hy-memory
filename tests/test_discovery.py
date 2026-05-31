@@ -51,7 +51,7 @@ def test_user_plugin_is_discovered_and_loaded(tmp_path):
     assert 'hy_memory' in names
     assert data['provider_class'] == 'HyMemoryProvider'
     assert data['name'] == 'hy_memory'
-    assert data['available'] is False  # hy_memory SDK is optional/lazy in this test env
+    assert data['available'] is True  # managed worker runtime makes the plugin loadable without parent-process hy_memory SDK
 
 
 def test_provider_exposes_initial_status_tool(tmp_path):

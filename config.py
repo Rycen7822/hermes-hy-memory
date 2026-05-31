@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping
@@ -22,6 +23,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "profile_min_score": 0.4,
     "reader": "",
     "data_dir": "",
+    "runtime": {
+        "mode": "managed_venv",
+        "venv_path": "",
+        "package": "hy-memory",
+        "auto_install": True,
+        "python": "",
+        "worker_script": "",
+    },
     "vector_store": {
         "provider": "chroma",
         "collection_name": "hermes_memories",
@@ -71,6 +80,9 @@ OPENCLAW_ALIASES: Dict[str, str] = {
     "retryDelay": "retry_delay",
     "extraBody": "extra_body",
     "extraHeaders": "extra_headers",
+    "venvPath": "venv_path",
+    "autoInstall": "auto_install",
+    "workerScript": "worker_script",
 }
 
 _SECRET_KEYS = {"api_key", "apiKey", "llm_api_key", "embedder_api_key"}
@@ -98,6 +110,7 @@ class HyMemoryConfig:
     cache_db_path: Path
     history_db_path: Path
     graph_db_path: Path
+    runtime: Dict[str, Any]
     llm: Dict[str, Any]
     embedder: Dict[str, Any]
 
@@ -225,6 +238,14 @@ def _expand_path(raw: Any, hermes_home: Path, default_relative: str) -> Path:
     return path
 
 
+def _expand_plugin_path(raw: Any, default_name: str) -> Path:
+    text = str(raw or default_name).strip() or default_name
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parent / path
+    return path
+
+
 def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | None = None) -> HyMemoryConfig:
     """Load profile-scoped HY Memory configuration.
 
@@ -242,6 +263,18 @@ def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | 
     session_id = str(runtime.get("session_id") or "")
 
     data_dir = _expand_path(raw.get("data_dir"), home, "hy_memory")
+    runtime_config = raw.get("runtime") if isinstance(raw.get("runtime"), Mapping) else {}
+    runtime_mode = str(runtime_config.get("mode") or "managed_venv")
+    if runtime_mode not in {"managed_venv", "in_process"}:
+        runtime_mode = "managed_venv"
+    runtime_values: Dict[str, Any] = {
+        "mode": runtime_mode,
+        "venv_path": str(_expand_path(runtime_config.get("venv_path"), home, "hy_memory/runtime/venv")),
+        "package": str(runtime_config.get("package") or "hy-memory"),
+        "auto_install": _as_bool(runtime_config.get("auto_install"), True),
+        "python": str(runtime_config.get("python") or sys.executable),
+        "worker_script": str(_expand_plugin_path(runtime_config.get("worker_script"), "hy_memory_worker.py")),
+    }
     vector_store = raw.get("vector_store") if isinstance(raw.get("vector_store"), Mapping) else {}
     llm = dict(raw.get("llm") if isinstance(raw.get("llm"), Mapping) else DEFAULT_CONFIG["llm"])
     llm["mode"] = str(llm.get("mode") or "hermes")
@@ -288,6 +321,7 @@ def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | 
         cache_db_path=data_dir / "data" / "cache.db",
         history_db_path=data_dir / "data" / "history.db",
         graph_db_path=data_dir / "data" / "kuzu_db",
+        runtime=runtime_values,
         llm=llm,
         embedder=embedder,
     )
@@ -315,6 +349,9 @@ def get_config_schema() -> list[dict[str, Any]]:
         {"key": "auto_capture", "description": "Enable automatic turn capture", "default": "true", "choices": ["true", "false"]},
         {"key": "top_k", "description": "Recall result limit", "default": "10"},
         {"key": "min_score", "description": "Normal recall min score", "default": "0.4"},
+        {"key": "runtime.mode", "description": "HY Memory runtime owner", "default": "managed_venv", "choices": ["managed_venv", "in_process"]},
+        {"key": "runtime.venv_path", "description": "Managed HY Memory Python venv path", "default": "$HERMES_HOME/hy_memory/runtime/venv"},
+        {"key": "runtime.auto_install", "description": "Allow managed runtime install on first real use", "default": "true", "choices": ["true", "false"]},
         {"key": "llm_api_key", "description": "LLM API key", "secret": True, "required": False, "env_var": "MEMORY_LLM_API_KEY"},
         {"key": "embedder_api_key", "description": "Embedder API key", "secret": True, "required": False, "env_var": "MEMORY_EMBEDDER_API_KEY"},
     ]

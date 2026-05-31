@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 
@@ -142,3 +143,15 @@ def test_stats_track_calls_tokens_and_errors(fake_auxiliary):
     assert stats["errors"] == 1
     assert stats["avg_tokens_per_call"] == 11
     assert stats["error_rate"] == 0.5
+
+
+def test_response_is_awaitable_for_upstream_async_hy_memory_callers(fake_auxiliary):
+    provider = HermesHostLLMProvider()
+
+    async def run():
+        response = await provider.complete("async probe")
+        return response
+
+    response = asyncio.run(run())
+    assert response.content == "remembered answer"
+    assert fake_auxiliary.calls[-1]["messages"] == [{"role": "user", "content": "async probe"}]

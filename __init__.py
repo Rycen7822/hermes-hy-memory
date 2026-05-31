@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import threading
+from pathlib import Path
 from typing import Any, Dict, List
 
 from agent.memory_provider import MemoryProvider
@@ -32,8 +33,8 @@ class HyMemoryProvider(MemoryProvider):
         return "hy_memory"
 
     def is_available(self) -> bool:
-        """Return whether the optional hy_memory SDK import is available."""
-        return importlib.util.find_spec("hy_memory") is not None
+        """Return whether the plugin can run with either managed runtime or in-process SDK."""
+        return (Path(__file__).resolve().parent / "hy_memory_worker.py").exists() or importlib.util.find_spec("hy_memory") is not None
 
     def initialize(self, session_id: str, **kwargs) -> None:
         """Initialize provider state for a Hermes session."""

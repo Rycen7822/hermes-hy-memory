@@ -84,6 +84,12 @@ ALLOWED_CONFIG_PATHS = {
     "embedder.embedding_dims",
     "embedder.timeout",
     "embedder.max_retries",
+    "runtime.mode",
+    "runtime.venv_path",
+    "runtime.package",
+    "runtime.auto_install",
+    "runtime.python",
+    "runtime.worker_script",
     "vector_store.provider",
     "vector_store.collection_name",
     "vector_store.persist_directory",
@@ -130,6 +136,7 @@ def _config_dict(args) -> Dict[str, Any]:
         "profile_min_score": cfg.profile_min_score,
         "reader": cfg.reader,
         "data_dir": str(cfg.data_dir),
+        "runtime": dict(cfg.runtime),
         "vector_store": {
             "provider": cfg.vector_provider,
             "collection_name": cfg.vector_collection_name,
@@ -193,11 +200,20 @@ def cmd_init(args) -> int:
             "provider": args.vector_store,
             "collection_name": args.collection_name,
         },
+        "runtime": {
+            "mode": args.runtime_mode,
+            "auto_install": _parse_scalar(args.runtime_auto_install),
+            "package": args.runtime_package,
+        },
     }
+    if args.runtime_venv:
+        values["runtime"]["venv_path"] = args.runtime_venv
     save_hy_memory_config(values, args.hermes_home)
+    resolved = load_hy_memory_config(args.hermes_home, {"agent_identity": args.agent_identity, "user_id": args.user_id, "session_id": args.session_id})
     print(json.dumps({
         "ok": True,
         "config": str(Path(args.hermes_home).expanduser() / "hy_memory.json"),
+        "runtime": dict(resolved.runtime),
         "env_vars": ["MEMORY_EMBEDDER_API_KEY", "MEMORY_LLM_API_KEY"],
         "restart": "Restart/reset Hermes Agent after changing provider config or env vars.",
     }, ensure_ascii=False, indent=2))
@@ -243,6 +259,10 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--embedder-dims", type=int, default=1024)
     init.add_argument("--vector-store", default="chroma")
     init.add_argument("--collection-name", default="hermes_memories")
+    init.add_argument("--runtime-mode", choices=["managed_venv", "in_process"], default="managed_venv")
+    init.add_argument("--runtime-venv", default="", help="Override managed HY Memory runtime venv path")
+    init.add_argument("--runtime-package", default="hy-memory", help="Package spec installed into the managed runtime")
+    init.add_argument("--runtime-auto-install", choices=["true", "false"], default="true", help="Whether first real use may create/install the managed runtime")
     init.add_argument("--non-interactive", action="store_true", help="Accepted for scriptable setup")
     init.set_defaults(func=cmd_init)
 

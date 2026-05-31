@@ -11,7 +11,7 @@ from client_adapter import (
     build_sdk_config_dict,
     normalize_search_memories,
 )
-from config import load_hy_memory_config
+from config import load_hy_memory_config, save_hy_memory_config
 
 
 class FakeHyMemoryClient:
@@ -119,6 +119,7 @@ def test_build_sdk_config_dict_uses_profile_scoped_paths(tmp_path):
 
 
 def test_adapter_lazy_initializes_client_and_forwards_calls(tmp_path, fake_hy_memory):
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder", "session_id": "sess"})
     adapter = HyMemoryClientAdapter(cfg)
 
