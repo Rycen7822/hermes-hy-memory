@@ -6,6 +6,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# Keep local planning/notes private; only README.md is repository documentation
+# Keep local planning/notes private; only README.md and bundled plugin skills are repository Markdown
 *.md
 !README.md
+!resources/
+!resources/skills/
+!resources/skills/**/
+!resources/skills/**/SKILL.md

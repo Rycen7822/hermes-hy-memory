@@ -25,6 +25,22 @@ except ImportError:  # Source-local pytest may import this file as top-level __i
     from tool_handlers import handle_tool_call as dispatch_tool_call
 
 
+SKILL_NAME = "hy-memory-curation"
+SKILL_DESCRIPTION = "Use proactively when complex or iterative work may produce durable HY Memory/Hermes memory: recall, save, verify, clean, or migrate reusable preferences, workflows, debugging lessons, and tool/API quirks without saving noisy task logs."
+
+
+def _skill_path() -> Path:
+    return Path(__file__).resolve().parent / "resources" / "skills" / SKILL_NAME / "SKILL.md"
+
+
+def _register_bundled_skill(ctx: Any) -> None:
+    if not hasattr(ctx, "register_skill"):
+        return
+    path = _skill_path()
+    if path.exists():
+        ctx.register_skill(SKILL_NAME, path, SKILL_DESCRIPTION)
+
+
 class HyMemoryProvider(MemoryProvider):
     """Hermes MemoryProvider backed by the hy-memory Python SDK."""
 
@@ -207,5 +223,8 @@ class HyMemoryProvider(MemoryProvider):
 
 
 def register(ctx) -> None:
-    """Register HY Memory as a Hermes memory provider plugin."""
-    ctx.register_memory_provider(HyMemoryProvider())
+    """Register HY Memory as a Hermes memory provider plugin or standalone skill surface."""
+    if hasattr(ctx, "register_memory_provider"):
+        ctx.register_memory_provider(HyMemoryProvider())
+        return
+    _register_bundled_skill(ctx)

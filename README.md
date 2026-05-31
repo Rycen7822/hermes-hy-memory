@@ -11,6 +11,7 @@ Hermes HY Memory Provider is a single Hermes Agent memory-provider plugin for th
 - HY Memory SDK LLMProvider injection: `hy_memory_llm_patch.py`
 - SDK/worker adapter around `hy_memory.HyMemoryClient`: `client_adapter.py`
 - Tools: `hy_memory_add`, `hy_memory_search`, `hy_memory_get`, `hy_memory_update`, `hy_memory_delete`, `hy_memory_list`, `hy_memory_status`
+- Bundled curation skill: `hy_memory:hy-memory-curation`
 - Background prefetch/capture lifecycle hooks
 - Developer CLI and optional smoke test
 
@@ -24,7 +25,17 @@ hermes plugins enable hy_memory
 hermes config set memory.provider hy_memory
 ```
 
-After enabling the plugin, changing provider config, or changing `$HERMES_HOME/.env`, restart Hermes Agent or start a new/reset session so the memory provider and tools are reloaded.
+After enabling the plugin, changing provider config, or changing `$HERMES_HOME/.env`, restart Hermes Agent or start a new/reset session so the memory provider, tools, and bundled skill registry are reloaded.
+
+## Bundled memory-curation skill
+
+The plugin ships `hy_memory:hy-memory-curation`, adapted from the EverOS-Hermes curation skill. Load it when you want Hermes to proactively decide whether a complex task produced durable memory, a reusable skill, a local note, or no save at all:
+
+```text
+/skill hy_memory:hy-memory-curation
+```
+
+The skill also documents HY Memory-specific behavior: successful `hy_memory_add` calls may remain as `l1_raw`, while `hy_memory_search` and `hy_memory_list` mainly return structured layers such as identity/profile/normal memories. For live search smoke tests, use durable-looking preference or identity facts and keep cleanup intent in metadata, then delete the isolated test scope.
 
 ## Runtime architecture
 
