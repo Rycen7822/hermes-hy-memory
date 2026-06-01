@@ -234,6 +234,20 @@ def cmd_config_set(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    from dashboard import run_dashboard
+
+    config = load_hy_memory_config(
+        args.hermes_home,
+        {"agent_identity": args.agent_identity, "user_id": args.user_id, "session_id": args.session_id},
+    )
+    try:
+        return run_dashboard(config, host=args.host, port=args.port, open_browser=not args.no_open)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="HY Memory Hermes provider developer CLI")
     parser.add_argument("--hermes-home", default=str(Path.home() / ".hermes"), help="Hermes profile home")
@@ -292,6 +306,17 @@ def build_parser() -> argparse.ArgumentParser:
     delete = sub.add_parser("delete", parents=[common], help="Delete one memory by exact id")
     delete.add_argument("memory_id")
     delete.set_defaults(func=cmd_delete)
+
+    dashboard = sub.add_parser(
+        "dashboard",
+        parents=[common],
+        help="Run local read-only HY Memory dashboard",
+        description="Run local read-only HY Memory dashboard",
+    )
+    dashboard.add_argument("--host", default="127.0.0.1", help="Local bind host; only 127.0.0.1 and localhost are allowed")
+    dashboard.add_argument("--port", type=int, default=8765, help="Local bind port; use 0 for an ephemeral test port")
+    dashboard.add_argument("--no-open", action="store_true", help="Do not open the dashboard URL in a browser")
+    dashboard.set_defaults(func=cmd_dashboard)
     return parser
 
 

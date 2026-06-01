@@ -105,6 +105,42 @@ When keys or provider settings are involved, store secrets only in `$HERMES_HOME
 4. Saving stale task artifacts such as SHAs, issue numbers, transient failures, or milestone logs. Use session transcripts or local notes for task history.
 5. Deleting broadly without confirming scope. Use exact ids or isolated test scopes, and verify after deletion.
 6. Expecting a just-added bundled plugin skill to appear in the current session. Plugin skill catalogs are loaded at session start; use `/reset` or a new Hermes process after installation or code changes.
+7. Misreading stale worker state after out-of-band bulk writes as failed persistence. Normal `hy_memory_add` calls through the current provider should not require a refresh, but a separate migration/provider process can update the same Chroma-backed store while the current Hermes worker still holds an old client view; verify with a fresh provider or `/reset` before concluding that imported data is missing.
+
+## Local Dashboard Inspection
+
+Use the local dashboard when the user asks to visually inspect HY Memory save/recall activity, memory contents, or current memory counts. The dashboard is a browser view over existing local HY Memory data files; it is not a memory management console.
+
+Start it from the installed plugin path, not from the development repository:
+
+```bash
+PLUGIN_CLI="${HERMES_HOME:-$HOME/.hermes}/plugins/hy_memory/cli.py"
+python "$PLUGIN_CLI" dashboard --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --host 127.0.0.1 --port 8765
+```
+
+Open `http://127.0.0.1:8765` in a browser. The page uses a sticky top navigation to switch between Overview, Usage, Recent Activity, Current Structured Memory Records, Raw / History Memory Records, and Trace; do not expect every long table to be visible at once. The Overview page uses a command-surface overview layout with a large structured-record status surface, database health rail, telemetry matrix, layer distribution, and event composition panels. Activity, memory records, and raw/history records are paginated at 25 rows per page, with long table cells line-clamped/truncated for scanability. Recent Activity KIND and Raw / History EVENT use type-colored KIND/EVENT badges so ADD, SEARCH, UPDATE, DELETE, and recall pipeline rows are visually distinct. On Current Structured Memory Records and Raw / History Memory Records, click a Content cell to expand that specific cell to its full content, then click it again to collapse back to the truncated preview. The page shows:
+
+- Current overview: database health, history event count, current memory record count, pipeline log count, latest save/search timestamps, and explicit History L1 / L3 plus Current L3 counts.
+- Memory usage: ADD, SEARCH, UPDATE, DELETE, and recall pipeline counts grouped by hour/day/month.
+- Recent activity: history rows, memory operations, and pipeline steps in reverse chronological order.
+- Memory records: current structured memory ids, layers, users, agents, and content snippets with local filtering. The layer filter is intentionally scoped to current structured records from local active vector metadata in `vector_db/chroma.sqlite3`; shadowed UPDATE predecessors and raw `l1_raw` nodes are not current records.
+- Raw / History Memory Records: history rows from `history.db.memory_history` with independent query and layer filters. Use this view to inspect raw `l1_raw` rows and historical `l3_*` rows without mixing them into current structured records.
+- Trace details: pipeline steps for a selected request id.
+
+Data source map:
+
+- `history.db.memory_history` supplies ADD/SEARCH/UPDATE/DELETE history, save/recall timestamps, and Raw / History Memory Records rows including `l1_raw` and historical `l3_*` layers.
+- `vector_db/chroma.sqlite3` supplies local active vector metadata for Current Structured Memory Records. This active-state view excludes shadowed UPDATE predecessors and raw `l1_raw` nodes.
+- `cache.db.memory_operations` supplies the operation/audit log for save-side ADD/UPDATE/SUPERSEDE activity in Recent Activity; it is not current structured memory state.
+- `cache.db.pipeline_logs` supplies recall pipeline steps, request ids, result ids, prompts/responses in truncated form, and elapsed time.
+- `cache.db.system_metrics` supplies local runtime metric snapshots.
+
+Safety rules:
+
+- The dashboard is read-only and localhost-only.
+- It uses GET-only local API endpoints and never exposes add/update/delete/import/export/forget actions.
+- It does not start HY Memory runtime installation or managed worker setup; it only reads existing SQLite files with read-only connections.
+- Do not paste full prompt/response payloads into reports. The dashboard truncates displayed prompt, response, and content text by default.
 
 ## Verification Checklist
 

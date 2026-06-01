@@ -48,6 +48,63 @@ def test_readme_documents_install_enable_verify_and_restart():
     assert "scripts/smoke_hy_memory.py --skip-if-unconfigured" in readme
 
 
+def test_readme_documents_local_read_only_dashboard():
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "${HERMES_HOME:-$HOME/.hermes}/plugins/hy_memory/cli.py" in readme
+    assert "python cli.py dashboard" not in readme
+    assert "http://127.0.0.1:8765" in readme
+    assert "read-only" in readme or "只读" in readme
+    assert "history.db.memory_history" in readme
+    assert "local active vector metadata" in readme
+    assert "vector_db/chroma.sqlite3" in readme
+    assert "operation/audit" in readme
+    assert "cache.db.memory_operations" in readme
+    assert "sticky top navigation" in readme
+    assert "paginated at 25 rows per page" in readme
+    assert "line-clamped/truncated" in readme
+    assert "click a Content cell" in readme
+    assert "type-colored KIND/EVENT badges" in readme
+    assert "cache.db.pipeline_logs" in readme
+    assert "cache.db.system_metrics" in readme
+    assert "/api/history-records" in readme
+    assert "Raw / History Memory Records" in readme
+    assert "command-surface overview" in readme
+    assert "docs/screenshots/dashboard-overview.png" in readme
+    assert "docs/screenshots/dashboard-usage.png" in readme
+    assert "docs/screenshots/dashboard-records.png" in readme
+    for screenshot in [
+        "docs/screenshots/dashboard-overview.png",
+        "docs/screenshots/dashboard-usage.png",
+        "docs/screenshots/dashboard-records.png",
+    ]:
+        path = PROJECT_ROOT / screenshot
+        assert path.exists(), screenshot
+        assert path.stat().st_size > 10_000, screenshot
+    assert "l1_raw" in readme
+    assert "l3_" in readme
+
+
+def test_bundled_skill_documents_installed_dashboard_path():
+    skill = (PROJECT_ROOT / "resources" / "skills" / "hy-memory-curation" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "${HERMES_HOME:-$HOME/.hermes}/plugins/hy_memory/cli.py" in skill
+    assert "python cli.py dashboard" not in skill
+    assert "not from the development repository" in skill
+    assert "Raw / History Memory Records" in skill
+    assert "local active vector metadata" in skill
+    assert "operation/audit" in skill
+    assert "sticky top navigation" in skill
+    assert "paginated at 25 rows per page" in skill
+    assert "line-clamped/truncated" in skill
+    assert "click a Content cell" in skill
+    assert "type-colored KIND/EVENT badges" in skill
+    assert "l1_raw" in skill
+    assert "l3_" in skill
+    assert "command-surface overview" in skill
+    assert "copy-id controls" not in skill
+
+
 def test_gitignore_excludes_local_generated_files():
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
 

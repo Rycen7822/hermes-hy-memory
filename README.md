@@ -199,6 +199,45 @@ python scripts/smoke_hy_memory.py --skip-if-unconfigured --hermes-home "$HERMES_
 python scripts/smoke_hy_memory.py --skip-if-unconfigured --deep --hermes-home "$HERMES_HOME"
 ```
 
+## Local dashboard
+
+Run the local read-only dashboard when you want to inspect saved memory and recall activity in a browser without starting a memory worker or writing any records. After normal Hermes plugin installation, run it from the installed plugin path, not from the development repository:
+
+```bash
+PLUGIN_CLI="${HERMES_HOME:-$HOME/.hermes}/plugins/hy_memory/cli.py"
+python "$PLUGIN_CLI" dashboard --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --host 127.0.0.1 --port 8765
+```
+
+For local development only, the same command may be run against this repository's `cli.py`.
+
+Then open:
+
+```text
+http://127.0.0.1:8765
+```
+
+The dashboard is read-only and localhost-only. It exposes GET-only local API endpoints for overview, usage, activity, current structured memories, raw/history records, trace, and health, including `/api/history-records` for the Raw / History Memory Records view. It does not add, update, delete, import, export, or forget memories. The browser UI uses a sticky top navigation to switch between Overview, Usage, Recent Activity, Current Structured Memory Records, Raw / History Memory Records, and Trace instead of rendering all long tables on one page. The Overview page uses a command-surface overview layout with a large structured-record status surface, database health rail, telemetry matrix, layer distribution, and event composition panels. Activity, current structured records, and raw/history records are paginated at 25 rows per page, and long table cells are line-clamped/truncated with full values kept in tooltips where practical; Recent Activity KIND and Raw / History EVENT use type-colored KIND/EVENT badges so ADD, SEARCH, UPDATE, DELETE, and recall pipeline rows are visually distinct; on Current Structured Memory Records and Raw / History Memory Records, click a Content cell to expand that specific cell to its full content and click it again to collapse back to the truncated preview.
+
+### Dashboard screenshots
+
+The screenshots below show the local read-only dashboard with public-safe placeholder paths/content where needed.
+
+![HY Memory dashboard overview command surface](docs/screenshots/dashboard-overview.png)
+
+![HY Memory dashboard usage timeline with inline legend](docs/screenshots/dashboard-usage.png)
+
+![HY Memory dashboard structured records table with redacted example content](docs/screenshots/dashboard-records.png)
+
+Dashboard data sources:
+
+- `history.db.memory_history`: ADD, SEARCH, UPDATE, DELETE history, latest save/recall timestamps, and the Raw / History Memory Records table. This view exposes raw `l1_raw` rows and historical `l3_*` rows when they exist. The overview also shows explicit History L1 / L3 counts so missing L3 data is visible as zero rather than hidden.
+- `vector_db/chroma.sqlite3`: local active vector metadata for Current Structured Memory Records. The current-record table reads active non-`l1_raw` structured nodes from Chroma metadata, so shadowed UPDATE predecessors and raw L1 nodes do not appear as current records.
+- `cache.db.memory_operations`: operation/audit log for save-side ADD/UPDATE/SUPERSEDE activity. These rows remain visible through Recent Activity and trace context, but they are not used as current structured memory state.
+- `cache.db.pipeline_logs`: recall pipeline steps such as `READ_*`, request ids, result ids, and elapsed time.
+- `cache.db.system_metrics`: local runtime metric snapshots.
+
+ADD, UPDATE, and DELETE are save-side activity. SEARCH and `READ_*` pipeline rows are recall-side activity. The dashboard reads those existing SQLite files with read-only connections and does not create a new database or cache.
+
 ## Tool result contracts
 
 - `hy_memory_add` returns `success=false`, `partial_success=true`, `memory_id/raw_memory_id`, and `searchable=false` when HY Memory stores a raw record but LLM/backend extraction fails. Treat that as a partial failure and clean up the raw id if needed.
