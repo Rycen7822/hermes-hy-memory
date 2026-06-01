@@ -37,7 +37,8 @@ def test_dashboard_serves_html_and_json_endpoints(tmp_path):
         assert "Raw / History Memory Records" in html
         assert "historyLayerFilter" in html
         assert "/api/history-records" in html
-        assert "History L1 / L3" in html
+        assert "History raw L1" in html
+        assert "History L1 / L3" not in html
         assert "Current L3 records" in html
         assert 'id="sectionNav"' in html
         assert 'data-view="activity"' in html
@@ -61,8 +62,18 @@ def test_dashboard_serves_html_and_json_endpoints(tmp_path):
         assert ".overview-value { max-width: 100%; min-width: 0; overflow: hidden;" in html
         assert ".overview-value-compact" in html
         assert "function compactTimestamp" in html
+        assert "function localOffsetLabel" in html
+        assert "new Date(text)" in html
+        assert "getTimezoneOffset" in html
+        assert "${match[2]}-${match[3]} ${match[4]}:${match[5]}Z" not in html
+        assert "function overviewPathRow(label, value, titleValue = value)" in html
+        assert "overviewStat('History raw L1', formatCount(historyL1), 'raw l1 events from history table')" in html
+        assert "const historyL3" not in html
         assert "overviewStat('Latest search', compactTimestamp(latestSearch), 'most recent recall timestamp', latestSearch)" in html
+        assert "overviewPathRow('Latest search', localTimestamp(latestSearch, true), latestSearch)" in html
         assert ".overview-path-value { max-width: 100%; min-width: 0; overflow: hidden;" in html
+        assert "overviewStat('History events', formatCount(data.totals.history_events), 'history table events')" in html
+        assert "historical l3 events" not in html
         assert "overflow-wrap: anywhere" in html
         assert "function metric(label, value)" not in html
         assert 'id="overview" class="grid"' not in html

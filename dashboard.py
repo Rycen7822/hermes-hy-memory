@@ -936,10 +936,27 @@ function sourceNode(label, status) {
   const ok = status === 'ok';
   return `<div class="source-node ${ok ? 'ok' : 'error'}" data-source-status="${esc(label)}:${esc(status || 'missing')}"><div class="source-node-head"><span class="source-dot" aria-hidden="true"></span><span>${esc(label)}</span></div><div class="source-node-status">${ok ? 'online' : esc(status || 'missing')}</div></div>`;
 }
-function compactTimestamp(value) {
+function localOffsetLabel(date) {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absolute = Math.abs(offsetMinutes);
+  const hours = Math.floor(absolute / 60);
+  const minutes = absolute % 60;
+  return minutes ? `UTC${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : `UTC${sign}${hours}`;
+}
+function localTimestamp(value, withSeconds = false) {
   const text = String(value || '—');
-  const match = text.match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):[0-9]{2}/);
-  return match ? `${match[2]}-${match[3]} ${match[4]}:${match[5]}Z` : text;
+  const parsed = new Date(text);
+  if (!text || text === '—' || Number.isNaN(parsed.getTime())) return text;
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  const second = String(parsed.getSeconds()).padStart(2, '0');
+  return `${month}-${day} ${hour}:${minute}${withSeconds ? `:${second}` : ''} ${localOffsetLabel(parsed)}`;
+}
+function compactTimestamp(value) {
+  return localTimestamp(value, false);
 }
 function overviewStat(label, value, hint = '', titleValue = value) {
   const text = String(value ?? '—');
@@ -947,9 +964,10 @@ function overviewStat(label, value, hint = '', titleValue = value) {
   const compact = text.length > 10;
   return `<div class="overview-stat"><div class="overview-label">${esc(label)}</div><div class="overview-value ${compact ? 'overview-value-compact' : ''}" title="${esc(title)}">${esc(text)}</div><div class="overview-hint">${esc(hint)}</div></div>`;
 }
-function overviewPathRow(label, value) {
+function overviewPathRow(label, value, titleValue = value) {
   const text = String(value || '—');
-  return `<div class="overview-path-row"><div class="overview-path-label">${esc(label)}</div><div class="overview-path-value" title="${esc(text)}">${esc(text)}</div></div>`;
+  const title = String(titleValue || text);
+  return `<div class="overview-path-row"><div class="overview-path-label">${esc(label)}</div><div class="overview-path-value" title="${esc(title)}">${esc(text)}</div></div>`;
 }
 function overviewLayerRows(counts, emptyLabel) {
   const entries = Object.entries(counts || {}).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0) || String(a[0]).localeCompare(String(b[0])));
@@ -1005,7 +1023,6 @@ async function loadOverview() {
     const countPrefix = (counts, prefix) => Object.entries(counts).reduce((total, [layer, count]) => total + (String(layer).startsWith(prefix) ? Number(count || 0) : 0), 0);
     const currentL3 = countPrefix(recordLayerCounts, 'l3');
     const historyL1 = countPrefix(historyLayerCounts, 'l1');
-    const historyL3 = countPrefix(historyLayerCounts, 'l3');
     const latestSave = latestSaveTime(data.latest || {});
     const latestSearch = (data.latest || {}).SEARCH || '—';
     document.getElementById('overview').innerHTML = `
@@ -1031,10 +1048,10 @@ async function loadOverview() {
           </div>
         </section>
         <aside class="overview-matrix" data-overview-matrix>
-          ${overviewStat('History events', formatCount(data.totals.history_events), 'raw l1 + historical l3 events')}
+          ${overviewStat('History events', formatCount(data.totals.history_events), 'history table events')}
           ${overviewStat('Pipeline logs', formatCount(data.totals.pipeline_logs), 'recall-side READ_* traces')}
           ${overviewStat('ADD / SEARCH', `${formatCount(data.event_counts.ADD)} / ${formatCount(data.event_counts.SEARCH)}`, 'save-side / recall-side history')}
-          ${overviewStat('History L1 / L3', `${formatCount(historyL1)} / ${formatCount(historyL3)}`, 'raw events vs historical l3')}
+          ${overviewStat('History raw L1', formatCount(historyL1), 'raw l1 events from history table')}
           ${overviewStat('Current L3 records', formatCount(currentL3), 'active structured summary nodes')}
           ${overviewStat('Latest search', compactTimestamp(latestSearch), 'most recent recall timestamp', latestSearch)}
         </aside>
@@ -1050,8 +1067,8 @@ async function loadOverview() {
             <div class="overview-panel-head"><div><div class="eyebrow">Operations</div><h3 class="overview-panel-title">Event composition</h3></div><div class="subtle">History table</div></div>
             ${overviewEventRows(data.event_counts)}
             <div class="overview-paths" style="margin-top:14px">
-              ${overviewPathRow('Latest save', latestSave)}
-              ${overviewPathRow('Latest search', latestSearch)}
+              ${overviewPathRow('Latest save', localTimestamp(latestSave, true), latestSave)}
+              ${overviewPathRow('Latest search', localTimestamp(latestSearch, true), latestSearch)}
             </div>
           </section>
         </div>

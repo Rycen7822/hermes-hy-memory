@@ -70,6 +70,9 @@ def test_readme_documents_local_read_only_dashboard():
     assert "/api/history-records" in readme
     assert "Raw / History Memory Records" in readme
     assert "command-surface overview" in readme
+    assert "History raw L1" in readme
+    assert "Current L3 records" in readme
+    assert "History L1 / L3" not in readme
     assert "docs/screenshots/dashboard-overview.png" in readme
     assert "docs/screenshots/dashboard-usage.png" in readme
     assert "docs/screenshots/dashboard-records.png" in readme
@@ -102,6 +105,9 @@ def test_bundled_skill_documents_installed_dashboard_path():
     assert "l1_raw" in skill
     assert "l3_" in skill
     assert "command-surface overview" in skill
+    assert "History raw L1" in skill
+    assert "Current L3 records" in skill
+    assert "History L1 / L3" not in skill
     assert "copy-id controls" not in skill
 
 

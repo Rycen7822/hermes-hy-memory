@@ -230,8 +230,8 @@ The screenshots below show the local read-only dashboard with public-safe placeh
 
 Dashboard data sources:
 
-- `history.db.memory_history`: ADD, SEARCH, UPDATE, DELETE history, latest save/recall timestamps, and the Raw / History Memory Records table. This view exposes raw `l1_raw` rows and historical `l3_*` rows when they exist. The overview also shows explicit History L1 / L3 counts so missing L3 data is visible as zero rather than hidden.
-- `vector_db/chroma.sqlite3`: local active vector metadata for Current Structured Memory Records. The current-record table reads active non-`l1_raw` structured nodes from Chroma metadata, so shadowed UPDATE predecessors and raw L1 nodes do not appear as current records.
+- `history.db.memory_history`: ADD, SEARCH, UPDATE, DELETE history, latest save/recall timestamps, and the Raw / History Memory Records table. This view exposes raw `l1_raw` rows and historical structured rows when they exist. The overview shows `History raw L1` from this history table separately from `Current L3 records`, which comes from active vector metadata, so historical zero states do not look like current structured-record mismatches.
+- `vector_db/chroma.sqlite3`: local active vector metadata for Current Structured Memory Records. The current-record table reads active non-`l1_raw` structured nodes such as `l3_*` from Chroma metadata, so shadowed UPDATE predecessors and raw L1 nodes do not appear as current records.
 - `cache.db.memory_operations`: operation/audit log for save-side ADD/UPDATE/SUPERSEDE activity. These rows remain visible through Recent Activity and trace context, but they are not used as current structured memory state.
 - `cache.db.pipeline_logs`: recall pipeline steps such as `READ_*`, request ids, result ids, and elapsed time.
 - `cache.db.system_metrics`: local runtime metric snapshots.
