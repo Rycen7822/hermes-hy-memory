@@ -49,7 +49,7 @@ def _effective_embedding_dims(embedder: Dict[str, Any]) -> int:
     dims = int(embedder.get("embedding_dims") or 0)
     model = str(embedder.get("model") or "").lower()
     base_url = str(embedder.get("base_url") or "").lower()
-    if "qwen3" in model and "siliconflow" in base_url:
+    if "siliconflow" in base_url and ("qwen3" in model or "bge-m3" in model):
         return 0
     return dims
 

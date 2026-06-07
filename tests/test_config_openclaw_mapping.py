@@ -91,3 +91,21 @@ def test_qwen3_online_embedding_sets_effective_sdk_dims_to_zero(tmp_path):
     sdk_config = build_sdk_config_dict(cfg)
     assert sdk_config["embedder"]["embedding_dims"] == 0
     assert sdk_config["vector_store"]["embedding_dims"] == 0
+
+
+def test_bge_m3_siliconflow_embedding_omits_unsupported_dimensions(tmp_path):
+    save_hy_memory_config({
+        "embedder": {
+            "provider": "openai",
+            "model": "BAAI/bge-m3",
+            "baseUrl": "https://api.siliconflow.cn/v1",
+            "dims": 1024,
+        }
+    }, tmp_path)
+
+    cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder"})
+    assert cfg.embedder["embedding_dims"] == 1024
+
+    sdk_config = build_sdk_config_dict(cfg)
+    assert sdk_config["embedder"]["embedding_dims"] == 0
+    assert sdk_config["vector_store"]["embedding_dims"] == 0

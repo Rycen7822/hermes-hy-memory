@@ -21,6 +21,8 @@ HY Memory has two user-facing plugin surfaces:
 - `memory.provider: hy_memory` enables automatic recall/capture hooks.
 - `plugins.enabled: [hy_memory]` exposes explicit `hy_memory_*` tools and this `hy_memory:hy-memory-curation` skill.
 
+Hermes' built-in `memory` tool is a separate local profile memory surface (`$HERMES_HOME/memories/USER.md` / `MEMORY.md`). If the user expects a fact to appear in the HY Memory dashboard or HY search/list results, save it with `hy_memory_add` and verify it there; a successful built-in `memory(action=...)` update will not create HY Memory ADD rows.
+
 HY Memory extraction is selective. `hy_memory_add` may store every accepted item as `l1_raw`, while `hy_memory_search` and `hy_memory_list` mainly return structured layers such as profile, identity, proactive, or normal memories. Durable-looking preference, identity, project convention, and reusable workflow facts are more likely to become searchable than text that says it is temporary, a test, or should be deleted.
 
 This skill is plugin-bundled and qualified-only. Load it as `hy_memory:hy-memory-curation`; it may not appear in ordinary `skills_list` or `hermes skills list` output because plugin skills are resolved through the plugin namespace.
@@ -101,11 +103,13 @@ When keys or provider settings are involved, store secrets only in `$HERMES_HOME
 
 1. Assuming `hy_memory_add` plus `memory_id` means search will immediately find the content. It may only be `l1_raw`; verify with semantically phrased search or get/list diagnostics.
 2. Writing smoke content that says it is temporary or should be deleted. HY Memory may correctly avoid promoting it to durable search layers.
-3. Saving procedures as memory. Promote reusable multi-step workflows to Hermes skills; save only compact facts about stable preferences or environment conventions.
-4. Saving stale task artifacts such as SHAs, issue numbers, transient failures, or milestone logs. Use session transcripts or local notes for task history.
-5. Deleting broadly without confirming scope. Use exact ids or isolated test scopes, and verify after deletion.
-6. Expecting a just-added bundled plugin skill to appear in the current session. Plugin skill catalogs are loaded at session start; use `/reset` or a new Hermes process after installation or code changes.
-7. Misreading stale worker state after out-of-band bulk writes as failed persistence. Normal `hy_memory_add` calls through the current provider should not require a refresh, but a separate migration/provider process can update the same Chroma-backed store while the current Hermes worker still holds an old client view; verify with a fresh provider or `/reset` before concluding that imported data is missing.
+3. Using Hermes' built-in `memory` tool when the user expects HY Memory dashboard/search visibility. Built-in memory edits `$HERMES_HOME/memories` and will not create HY ADD/history rows; use `hy_memory_add` for HY Memory persistence.
+4. Seeing SiliconFlow embedding error `400` / `code=20015` / "parameter is invalid" during `hy_memory_add` with `BAAI/bge-m3` or online Qwen3 embeddings. Confirm the SDK config omits `embedding_dims`/`dimensions` for that provider/model path; SiliconFlow accepts the plain request but rejects the dimensions parameter.
+5. Saving procedures as memory. Promote reusable multi-step workflows to Hermes skills; save only compact facts about stable preferences or environment conventions.
+6. Saving stale task artifacts such as SHAs, issue numbers, transient failures, or milestone logs. Use session transcripts or local notes for task history.
+7. Deleting broadly without confirming scope. Use exact ids or isolated test scopes, and verify after deletion.
+8. Expecting a just-added bundled plugin skill to appear in the current session. Plugin skill catalogs are loaded at session start; use `/reset` or a new Hermes process after installation or code changes.
+9. Misreading stale worker state after out-of-band bulk writes as failed persistence. Normal `hy_memory_add` calls through the current provider should not require a refresh, but a separate migration/provider process can update the same Chroma-backed store while the current Hermes worker still holds an old client view; verify with a fresh provider or `/reset` before concluding that imported data is missing.
 
 ## Local Dashboard Inspection
 

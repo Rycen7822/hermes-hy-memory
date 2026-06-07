@@ -22,9 +22,13 @@ def load_plugin_module():
 class SkillOnlyContext:
     def __init__(self):
         self.skills = []
+        self.tools = []
 
     def register_skill(self, name, path, description=""):
         self.skills.append((name, Path(path), description))
+
+    def register_tool(self, **kwargs):
+        self.tools.append(kwargs)
 
 
 class MemoryProviderContext:
@@ -55,6 +59,28 @@ def test_register_exposes_bundled_curation_skill_for_standalone_plugin_context()
     assert "partial_success" in content
     assert "structured ids" in content.lower()
     assert "raw id" in content.lower()
+
+
+def test_register_exposes_explicit_hy_memory_tools_for_standalone_plugin_context():
+    module = load_plugin_module()
+    ctx = SkillOnlyContext()
+
+    module.register(ctx)
+
+    names = [tool["name"] for tool in ctx.tools]
+    assert names == [
+        "hy_memory_add",
+        "hy_memory_search",
+        "hy_memory_get",
+        "hy_memory_update",
+        "hy_memory_delete",
+        "hy_memory_list",
+        "hy_memory_status",
+    ]
+    assert {tool["toolset"] for tool in ctx.tools} == {"hy_memory"}
+    assert all(callable(tool["handler"]) for tool in ctx.tools)
+    assert all(tool["description"] for tool in ctx.tools)
+    assert all(tool["emoji"] == "🧠" for tool in ctx.tools)
 
 
 def test_register_still_registers_memory_provider_for_memory_loader_context():

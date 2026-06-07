@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.util
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from agent.memory_provider import MemoryProvider
 
@@ -27,6 +27,10 @@ except ImportError:  # Source-local pytest may import this file as top-level __i
 
 SKILL_NAME = "hy-memory-curation"
 SKILL_DESCRIPTION = "Use proactively when complex or iterative work may produce durable HY Memory/Hermes memory: recall, save, verify, clean, or migrate reusable preferences, workflows, debugging lessons, and tool/API quirks without saving noisy task logs."
+TOOLSET = "hy_memory"
+_PLUGIN_TOOL_SESSION_ID = "hy-memory-plugin-tools"
+_tool_provider: "HyMemoryProvider | None" = None
+_tool_provider_lock = threading.Lock()
 
 
 def _skill_path() -> Path:
@@ -225,9 +229,50 @@ class HyMemoryProvider(MemoryProvider):
         self._adapter.close()
 
 
+def _get_tool_provider() -> HyMemoryProvider:
+    global _tool_provider
+    with _tool_provider_lock:
+        if _tool_provider is None:
+            _tool_provider = HyMemoryProvider()
+            _tool_provider.initialize(_PLUGIN_TOOL_SESSION_ID)
+        return _tool_provider
+
+
+def _provider_available() -> bool:
+    return HyMemoryProvider().is_available()
+
+
+def _make_tool_handler(tool_name: str) -> Callable[..., str]:
+    def _handler(args: dict[str, Any] | None = None, **kwargs: Any) -> str:
+        provider = _get_tool_provider()
+        return provider.handle_tool_call(tool_name, args or {}, **kwargs)
+
+    return _handler
+
+
+def _register_standalone_tools(ctx: Any) -> None:
+    if not hasattr(ctx, "register_tool"):
+        return
+    provider = HyMemoryProvider()
+    for schema in provider.get_tool_schemas():
+        name = str(schema.get("name") or "").strip()
+        if not name:
+            continue
+        ctx.register_tool(
+            name=name,
+            toolset=TOOLSET,
+            schema=schema,
+            handler=_make_tool_handler(name),
+            check_fn=_provider_available,
+            description=str(schema.get("description") or ""),
+            emoji="🧠",
+        )
+
+
 def register(ctx) -> None:
-    """Register HY Memory as a Hermes memory provider plugin or standalone skill surface."""
+    """Register HY Memory as a Hermes memory provider plugin or standalone skill/tool surface."""
     if hasattr(ctx, "register_memory_provider"):
         ctx.register_memory_provider(HyMemoryProvider())
         return
+    _register_standalone_tools(ctx)
     _register_bundled_skill(ctx)
