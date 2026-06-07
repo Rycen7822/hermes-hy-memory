@@ -955,6 +955,32 @@ function localTimestamp(value, withSeconds = false) {
   const second = String(parsed.getSeconds()).padStart(2, '0');
   return `${month}-${day} ${hour}:${minute}${withSeconds ? `:${second}` : ''} ${localOffsetLabel(parsed)}`;
 }
+function utcDateFromTimestamp(value) {
+  const text = String(value || '').trim();
+  if (!text || text === '—') return null;
+  const isoLike = text.includes('T') ? text : text.replace(' ', 'T');
+  const timestamp = /(?:Z|[+-][0-9]{2}:?[0-9]{2})$/.test(isoLike) ? isoLike : `${isoLike}Z`;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+const beijingDateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+  hourCycle: 'h23',
+});
+function beijingTimestamp(value) {
+  const text = String(value || '—').trim();
+  const parsed = utcDateFromTimestamp(text);
+  if (!parsed) return text || '—';
+  const parts = Object.fromEntries(beijingDateTimeFormatter.formatToParts(parsed).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} 北京时间`;
+}
 function compactTimestamp(value) {
   return localTimestamp(value, false);
 }
@@ -1129,9 +1155,9 @@ async function loadHistoryRecords() {
     const data = await api(`/api/history-records?limit=${pageSize}&offset=${historyState.offset}&query=${encodeURIComponent(q)}&layer=${encodeURIComponent(layer)}`);
     historyState.count = Number(data.count || 0);
     historyState.offset = Number(data.offset || 0);
-    const rows = data.items.map(item => `<tr><td class="mono-cell"><code>${esc(item.created_at)}</code></td><td class="mono-cell"><code title="${esc(item.memory_id)}">${esc(shortText(item.memory_id, 12))}</code></td><td>${esc(item.layer)}</td><td>${badgeFor(item.event)}</td><td>${esc(shortText(item.user_id, 18))}</td><td>${esc(shortText(item.agent_id, 18))}</td><td>${contentCell(item.content, 190, 'history')}</td></tr>`).join('');
+    const rows = data.items.map(item => `<tr><td class="mono-cell"><code title="${esc(item.created_at)}">${esc(beijingTimestamp(item.created_at))}</code></td><td class="mono-cell"><code title="${esc(item.memory_id)}">${esc(shortText(item.memory_id, 12))}</code></td><td>${esc(item.layer)}</td><td>${badgeFor(item.event)}</td><td>${esc(shortText(item.user_id, 18))}</td><td>${esc(shortText(item.agent_id, 18))}</td><td>${contentCell(item.content, 190, 'history')}</td></tr>`).join('');
     document.getElementById('historyRecords').innerHTML = tableShell('history', historyState, pageSize, [
-      {label:'Time', width:'17%'}, {label:'ID', width:'13%'}, {label:'Layer', width:'12%'}, {label:'Event', width:'10%'}, {label:'User', width:'11%'}, {label:'Agent', width:'11%'}, {label:'Content', width:'26%'}
+      {label:'Time (Beijing)', width:'17%'}, {label:'ID', width:'13%'}, {label:'Layer', width:'12%'}, {label:'Event', width:'10%'}, {label:'User', width:'11%'}, {label:'Agent', width:'11%'}, {label:'Content', width:'26%'}
     ], rows);
   } catch (err) { document.getElementById('historyRecords').innerHTML = `<div class="error-line">${esc(err.message)}</div>`; }
 }

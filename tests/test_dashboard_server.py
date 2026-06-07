@@ -63,6 +63,10 @@ def test_dashboard_serves_html_and_json_endpoints(tmp_path):
         assert ".overview-value-compact" in html
         assert "function compactTimestamp" in html
         assert "function localOffsetLabel" in html
+        assert "function utcDateFromTimestamp" in html
+        assert "function beijingTimestamp" in html
+        assert "timeZone: 'Asia/Shanghai'" in html
+        assert "北京时间" in html
         assert "new Date(text)" in html
         assert "getTimezoneOffset" in html
         assert "${match[2]}-${match[3]} ${match[4]}:${match[5]}Z" not in html
@@ -139,6 +143,8 @@ def test_dashboard_serves_html_and_json_endpoints(tmp_path):
         assert "function badgeFor" in html
         assert "badgeFor(item.kind)" in html
         assert "badgeFor(item.event)" in html
+        assert "beijingTimestamp(item.created_at)" in html
+        assert "title=\"${esc(item.created_at)}\">${esc(beijingTimestamp(item.created_at))}</code>" in html
         assert "data-badge-kind" in html
         assert ".badge-kind-add" in html
         assert ".badge-kind-search" in html
