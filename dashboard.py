@@ -424,7 +424,10 @@ def collect_usage(paths: DashboardPaths, bucket: str, filters: DashboardFilters)
         if step.startswith("READ_") and created_at:
             entry(created_at)["recall_pipeline"] += 1
 
-    return {"bucket": bucket, "series": [buckets[key] for key in sorted(buckets)]}
+    series = [buckets[key] for key in sorted(buckets, reverse=True)]
+    offset = _clamp_offset(filters.offset)
+    limit = _clamp_limit(filters.limit)
+    return {"bucket": bucket, "series": series[offset : offset + limit], "count": len(series), "limit": limit, "offset": offset}
 
 
 def collect_activity(paths: DashboardPaths, filters: DashboardFilters) -> dict[str, Any]:
@@ -746,6 +749,12 @@ DASHBOARD_HTML = """<!doctype html>
     .badge-kind-delete { background: rgba(224,96,85,.10); color: var(--danger); border-color: rgba(224,96,85,.30); }
     .badge-kind-pipeline { background: rgba(172,135,255,.10); color: #c8b7ff; border-color: rgba(172,135,255,.25); }
     .badge-kind-default { background: rgba(184,179,176,.080); color: var(--text-2); border-color: var(--line-1); }
+    .layer-badge { max-width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
+    .layer-badge-l1 { background: rgba(126,166,188,.13); color: #a9ccdc; border-color: rgba(126,166,188,.32); }
+    .layer-badge-l2 { background: rgba(127,214,161,.10); color: #aee2c3; border-color: rgba(127,214,161,.28); }
+    .layer-badge-l3 { background: rgba(239,111,46,.14); color: var(--accent-2); border-color: rgba(239,111,46,.34); }
+    .layer-badge-l4 { background: rgba(172,135,255,.11); color: #c8b7ff; border-color: rgba(172,135,255,.28); }
+    .layer-badge-default { background: rgba(184,179,176,.080); color: var(--text-2); border-color: var(--line-1); }
     .toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); }
     input, select { min-width: 220px; color: var(--text-1); background: rgba(5,5,5,.76); border-color: var(--line-1); }
     input::placeholder { color: var(--text-3); }
@@ -907,6 +916,18 @@ function badgeFor(value) {
   const kind = String(value ?? '').toUpperCase() || 'UNKNOWN';
   return `<span class="badge ${badgeClassFor(kind)}" data-badge-kind="${esc(kind)}">${esc(kind)}</span>`;
 }
+function layerBadgeClassFor(value) {
+  const layer = String(value ?? '').toLowerCase();
+  if (layer.startsWith('l1')) return 'layer-badge-l1';
+  if (layer.startsWith('l2')) return 'layer-badge-l2';
+  if (layer.startsWith('l3')) return 'layer-badge-l3';
+  if (layer.startsWith('l4')) return 'layer-badge-l4';
+  return 'layer-badge-default';
+}
+function layerBadgeFor(value) {
+  const layer = String(value ?? '').trim() || 'unknown';
+  return `<span class="badge layer-badge ${layerBadgeClassFor(layer)}" title="${esc(layer)}" data-layer-badge="${esc(layer)}">${esc(layer)}</span>`;
+}
 function contentCell(value, limit = 180, kind = 'content') {
   const text = String(value ?? '');
   const short = shortText(text, limit);
@@ -1013,6 +1034,7 @@ function overviewEventRows(counts) {
     return `<div class="overview-event-row" data-overview-event="${esc(event)}"><div>${badgeFor(event)}</div><div class="overview-event-count">${esc(count)}</div><div class="overview-track" aria-hidden="true"><div class="overview-fill ${badgeClassFor(event)}" style="width:${width}%"></div></div></div>`;
   }).join('')}</div>`;
 }
+const usageState = { offset: 0, count: 0 };
 const activityState = { offset: 0, count: 0 };
 const memoryState = { offset: 0, count: 0 };
 const historyState = { offset: 0, count: 0 };
@@ -1112,13 +1134,18 @@ async function loadOverview() {
 async function loadUsage() {
   try {
     const bucket = document.getElementById('bucket').value;
-    const data = await api(`/api/usage?bucket=${encodeURIComponent(bucket)}`);
-    const max = Math.max(1, ...data.series.map(row => row.add + row.search + row.update + row.delete + row.recall_pipeline));
-    document.getElementById('usage').innerHTML = data.series.map(row => {
+    const usagePageSize = PAGE_SIZE;
+    const data = await api(`/api/usage?bucket=${encodeURIComponent(bucket)}&limit=${usagePageSize}&offset=${usageState.offset}`);
+    usageState.count = Number(data.count || 0);
+    usageState.offset = Number(data.offset || 0);
+    const pageSeries = data.series;
+    const max = Math.max(1, ...pageSeries.map(row => row.add + row.search + row.update + row.delete + row.recall_pipeline));
+    const rows = pageSeries.map(row => {
       const total = row.add + row.search + row.update + row.delete + row.recall_pipeline;
       const seg = (cls, value) => `<span class="${cls}" style="width:${(value / max) * 100}%"></span>`;
       return `<div class="bar"><code>${esc(row.bucket)}</code><div><div class="track">${seg('seg-add', row.add)}${seg('seg-search', row.search)}${seg('seg-update', row.update)}${seg('seg-delete', row.delete)}${seg('seg-pipeline', row.recall_pipeline)}</div><div class="subtle">total ${total}</div></div></div>`;
     }).join('') || '<div class="subtle">No activity yet.</div>';
+    document.getElementById('usage').innerHTML = `${rows}${renderPager('usage', usageState, usagePageSize)}`;
   } catch (err) { document.getElementById('usage').innerHTML = `<div class="error-line">${esc(err.message)}</div>`; }
 }
 async function loadActivity() {
@@ -1141,7 +1168,7 @@ async function loadMemories() {
     const data = await api(`/api/memories?limit=${pageSize}&offset=${memoryState.offset}&query=${encodeURIComponent(q)}&layer=${encodeURIComponent(layer)}`);
     memoryState.count = Number(data.count || 0);
     memoryState.offset = Number(data.offset || 0);
-    const rows = data.items.map(item => `<tr><td class="mono-cell"><code title="${esc(item.memory_id)}">${esc(shortText(item.memory_id, 12))}</code></td><td>${esc(item.layer)}</td><td>${esc(shortText(item.user_id, 18))}</td><td>${esc(shortText(item.agent_id, 18))}</td><td>${contentCell(item.content, 190, 'structured')}</td></tr>`).join('');
+    const rows = data.items.map(item => `<tr><td class="mono-cell"><code title="${esc(item.memory_id)}">${esc(shortText(item.memory_id, 12))}</code></td><td>${layerBadgeFor(item.layer)}</td><td>${esc(shortText(item.user_id, 18))}</td><td>${esc(shortText(item.agent_id, 18))}</td><td>${contentCell(item.content, 190, 'structured')}</td></tr>`).join('');
     document.getElementById('memories').innerHTML = tableShell('memories', memoryState, pageSize, [
       {label:'ID', width:'16%'}, {label:'Layer', width:'14%'}, {label:'User', width:'14%'}, {label:'Agent', width:'14%'}, {label:'Content', width:'42%'}
     ], rows);
@@ -1175,7 +1202,7 @@ document.getElementById('sectionNav').addEventListener('click', (event) => {
   const button = event.target.closest('button[data-view]');
   if (button) showView(button.dataset.view);
 });
-document.getElementById('bucket').addEventListener('change', loadUsage);
+document.getElementById('bucket').addEventListener('change', () => resetStateAndLoad(usageState, loadUsage));
 document.getElementById('memoryQuery').addEventListener('input', () => resetStateAndLoad(memoryState, loadMemories));
 document.getElementById('layerFilter').addEventListener('change', () => resetStateAndLoad(memoryState, loadMemories));
 document.getElementById('historyQuery').addEventListener('input', () => resetStateAndLoad(historyState, loadHistoryRecords));
@@ -1184,8 +1211,8 @@ document.addEventListener('click', (event) => {
   const pageButton = event.target.closest('button[data-page-target]');
   if (pageButton) {
     const target = pageButton.dataset.pageTarget;
-    const state = target === 'activity' ? activityState : target === 'memories' ? memoryState : historyState;
-    const loader = target === 'activity' ? loadActivity : target === 'memories' ? loadMemories : loadHistoryRecords;
+    const state = target === 'usage' ? usageState : target === 'activity' ? activityState : target === 'memories' ? memoryState : historyState;
+    const loader = target === 'usage' ? loadUsage : target === 'activity' ? loadActivity : target === 'memories' ? loadMemories : loadHistoryRecords;
     const dir = pageButton.dataset.pageDir === 'next' ? 1 : -1;
     state.offset = Math.max(0, state.offset + (dir * PAGE_SIZE));
     loader();

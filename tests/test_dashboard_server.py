@@ -122,8 +122,16 @@ def test_dashboard_serves_html_and_json_endpoints(tmp_path):
         assert "linear-gradient(135deg, var(--blue), var(--green))" not in html
         assert "#7dd3fc" not in html
         assert "/api/activity?limit=${pageSize}&offset=${activityState.offset}" in html
+        assert "/api/usage?bucket=${encodeURIComponent(bucket)}&limit=${usagePageSize}&offset=${usageState.offset}" in html
         assert "/api/memories?limit=${pageSize}&offset=${memoryState.offset}" in html
         assert "/api/history-records?limit=${pageSize}&offset=${historyState.offset}" in html
+        assert "const usageState = { offset: 0, count: 0 };" in html
+        assert "const usagePageSize = PAGE_SIZE;" in html
+        assert "renderPager('usage', usageState, usagePageSize)" in html
+        assert "data.series.map(row =>" not in html
+        assert "target === 'usage' ? usageState" in html
+        assert "target === 'usage' ? loadUsage" in html
+        assert "resetStateAndLoad(usageState, loadUsage)" in html
         assert "{label:'Copy'" not in html
         assert 'data-copy-id="${esc(item.memory_id)}"' not in html
         assert ">Copy ID</button>" not in html
@@ -141,6 +149,14 @@ def test_dashboard_serves_html_and_json_endpoints(tmp_path):
         assert "textCell(item.summary, 180)" in html
         assert "function badgeClassFor" in html
         assert "function badgeFor" in html
+        assert "function layerBadgeClassFor" in html
+        assert "function layerBadgeFor" in html
+        assert "layerBadgeFor(item.layer)" in html
+        assert ".layer-badge" in html
+        assert ".layer-badge-l1" in html
+        assert ".layer-badge-l2" in html
+        assert ".layer-badge-l3" in html
+        assert ".layer-badge-l4" in html
         assert "badgeFor(item.kind)" in html
         assert "badgeFor(item.event)" in html
         assert "beijingTimestamp(item.created_at)" in html

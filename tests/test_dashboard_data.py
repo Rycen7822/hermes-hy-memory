@@ -388,18 +388,49 @@ def test_collect_history_records_filters_l1_and_l3_layers(tmp_path):
     assert all(item["layer"] == "l3_procedure" for item in l3_records["items"])
 
 
-def test_collect_usage_groups_save_and_recall_activity(tmp_path):
+def test_collect_usage_groups_save_and_recall_activity_desc_and_pages(tmp_path):
     paths = _write_fixture_dbs(tmp_path)
+    history = sqlite3.connect(paths.history_db_path)
+    history.execute(
+        """
+        INSERT INTO memory_history(memory_id, isolation_key, event, old_memory, new_memory, layer, actor_id, role, extra, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "older-raw",
+            "user-a:agent-a",
+            "ADD",
+            None,
+            "Older raw event should appear after the recent activity bucket.",
+            "l1_raw",
+            "agent-a",
+            "user",
+            json.dumps({"source": "unit"}),
+            "2026-05-31T23:58:00",
+            "2026-05-31T23:58:00",
+        ),
+    )
+    history.commit()
+    history.close()
 
     usage = collect_usage(paths, "hour", DashboardFilters())
 
     assert usage["bucket"] == "hour"
-    assert usage["series"][0]["bucket"] == "2026-06-01T09"
+    assert usage["count"] == 2
+    assert usage["limit"] == 100
+    assert usage["offset"] == 0
+    assert [row["bucket"] for row in usage["series"]] == ["2026-06-01T09", "2026-05-31T23"]
     assert usage["series"][0]["add"] == 3
     assert usage["series"][0]["search"] == 1
     assert usage["series"][0]["update"] == 1
     assert usage["series"][0]["delete"] == 1
     assert usage["series"][0]["recall_pipeline"] == 2
+
+    second_page = collect_usage(paths, "hour", DashboardFilters(limit=1, offset=1))
+    assert second_page["count"] == 2
+    assert second_page["limit"] == 1
+    assert second_page["offset"] == 1
+    assert [row["bucket"] for row in second_page["series"]] == ["2026-05-31T23"]
 
 
 def test_collect_activity_merges_sources_desc_and_truncates(tmp_path):
