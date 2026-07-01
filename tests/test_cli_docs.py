@@ -53,7 +53,7 @@ def test_readme_documents_local_read_only_dashboard():
 
     assert "${HERMES_HOME:-$HOME/.hermes}/plugins/hy_memory/cli.py" in readme
     assert "python cli.py dashboard" not in readme
-    assert "http://127.0.0.1:8765" in readme
+    assert "http://127.0.0.1:18999" in readme
     assert "read-only" in readme or "只读" in readme
     assert "history.db.memory_history" in readme
     assert "local active vector metadata" in readme

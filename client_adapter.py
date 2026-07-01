@@ -45,11 +45,29 @@ def normalize_search_memories(raw: Any) -> List[Dict[str, Any]]:
     return results
 
 
-def _effective_embedding_dims(embedder: Dict[str, Any]) -> int:
+def _collection_embedding_dims(embedder: Dict[str, Any]) -> int:
+    """Return the configured dimensionality used for collection naming.
+
+    HY Memory appends this dimension to the Chroma collection name. The local
+    default profile has existing 1024-dimensional BGE-M3 embeddings in
+    `hermes_memories_1024`; forcing this value to 0 redirects reads/writes to
+    the legacy unsuffixed `hermes_memories` collection, whose native HNSW
+    segment has repeatedly SIGSEGVed in chromadb_rust_bindings.
+    """
+    return int(embedder.get("embedding_dims") or 0)
+
+
+def _embed_request_dims(embedder: Dict[str, Any]) -> int:
+    """Return the optional dimensions parameter for embedding API calls.
+
+    SiliconFlow's OpenAI-compatible BGE-M3 path returns 1024-dimensional vectors
+    by default but rejects an explicit `dimensions` parameter. Keep the Chroma
+    collection suffix at 1024 while omitting dimensions from the request.
+    """
     dims = int(embedder.get("embedding_dims") or 0)
     model = str(embedder.get("model") or "").lower()
     base_url = str(embedder.get("base_url") or "").lower()
-    if "siliconflow" in base_url and ("qwen3" in model or "bge-m3" in model):
+    if "siliconflow" in base_url and ("bge-m3" in model or "qwen3" in model):
         return 0
     return dims
 
@@ -57,7 +75,8 @@ def _effective_embedding_dims(embedder: Dict[str, Any]) -> int:
 def build_sdk_config_dict(config: HyMemoryConfig) -> Dict[str, Any]:
     """Build a hy_memory.MemoryConfig-compatible dict from resolved config."""
     embedder = dict(config.embedder)
-    embedder["embedding_dims"] = _effective_embedding_dims(embedder)
+    collection_dims = _collection_embedding_dims(embedder)
+    embedder["embedding_dims"] = _embed_request_dims(embedder)
     llm = dict(config.llm)
     if llm.get("mode") == "hermes":
         llm.pop("api_key", None)
@@ -68,7 +87,7 @@ def build_sdk_config_dict(config: HyMemoryConfig) -> Dict[str, Any]:
             "provider": config.vector_provider,
             "collection_name": config.vector_collection_name,
             "persist_directory": str(config.vector_persist_directory),
-            "embedding_dims": embedder.get("embedding_dims"),
+            "embedding_dims": collection_dims,
         },
         "graph_store": {
             "provider": "kuzu",

@@ -205,7 +205,7 @@ Run the local read-only dashboard when you want to inspect saved memory and reca
 
 ```bash
 PLUGIN_CLI="${HERMES_HOME:-$HOME/.hermes}/plugins/hy_memory/cli.py"
-python "$PLUGIN_CLI" dashboard --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --host 127.0.0.1 --port 8765
+python "$PLUGIN_CLI" dashboard --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --host 127.0.0.1 --port 18999
 ```
 
 For local development only, the same command may be run against this repository's `cli.py`.
@@ -213,7 +213,7 @@ For local development only, the same command may be run against this repository'
 Then open:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:18999
 ```
 
 The dashboard is read-only and localhost-only. It exposes GET-only local API endpoints for overview, usage, activity, current structured memories, raw/history records, trace, and health, including `/api/history-records` for the Raw / History Memory Records view. It does not add, update, delete, import, export, or forget memories. The browser UI uses a sticky top navigation to switch between Overview, Usage, Recent Activity, Current Structured Memory Records, Raw / History Memory Records, and Trace instead of rendering all long tables on one page. The Overview page uses a command-surface overview layout with a large structured-record status surface, database health rail, telemetry matrix, layer distribution, and event composition panels. Activity, current structured records, and raw/history records are paginated at 25 rows per page, and long table cells are line-clamped/truncated with full values kept in tooltips where practical; Recent Activity KIND and Raw / History EVENT use type-colored KIND/EVENT badges so ADD, SEARCH, UPDATE, DELETE, and recall pipeline rows are visually distinct; on Current Structured Memory Records and Raw / History Memory Records, click a Content cell to expand that specific cell to its full content and click it again to collapse back to the truncated preview.

@@ -75,7 +75,7 @@ def test_default_llm_mode_is_hermes_and_direct_mode_uses_env_key(tmp_path, monke
     assert redact_config({"llm": direct_with_key.llm})["llm"]["api_key"] == "[REDACTED]"
 
 
-def test_qwen3_online_embedding_sets_effective_sdk_dims_to_zero(tmp_path):
+def test_qwen3_online_embedding_omits_request_dims_but_preserves_collection_dims(tmp_path):
     save_hy_memory_config({
         "embedder": {
             "provider": "openai",
@@ -90,7 +90,7 @@ def test_qwen3_online_embedding_sets_effective_sdk_dims_to_zero(tmp_path):
 
     sdk_config = build_sdk_config_dict(cfg)
     assert sdk_config["embedder"]["embedding_dims"] == 0
-    assert sdk_config["vector_store"]["embedding_dims"] == 0
+    assert sdk_config["vector_store"]["embedding_dims"] == 4096
 
 
 def test_bge_m3_siliconflow_embedding_omits_unsupported_dimensions(tmp_path):
@@ -108,4 +108,4 @@ def test_bge_m3_siliconflow_embedding_omits_unsupported_dimensions(tmp_path):
 
     sdk_config = build_sdk_config_dict(cfg)
     assert sdk_config["embedder"]["embedding_dims"] == 0
-    assert sdk_config["vector_store"]["embedding_dims"] == 0
+    assert sdk_config["vector_store"]["embedding_dims"] == 1024

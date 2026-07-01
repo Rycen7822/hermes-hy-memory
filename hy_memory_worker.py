@@ -146,11 +146,54 @@ def request_parent_llm(payload: Dict[str, Any]) -> Dict[str, Any]:
         return result if isinstance(result, dict) else {"content": str(result)}
 
 
+def _as_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _configure_chroma_vdb_pool(sdk_config: Mapping[str, Any], runtime_config: Mapping[str, Any]) -> Dict[str, Any]:
+    """Limit HY Memory's Chroma thread pool before the SDK client is built.
+
+    The upstream hy_memory Chroma store creates a module-level 64-thread executor.
+    In this WSL profile that correlated with repeated native SIGSEGVs in
+    chromadb_rust_bindings. Patch the owning module at worker startup instead of
+    editing the managed venv's site-packages, so reinstalls keep the mitigation.
+    """
+    vector_store = sdk_config.get("vector_store") if isinstance(sdk_config.get("vector_store"), Mapping) else {}
+    provider = str(vector_store.get("provider") or "chroma").lower()
+    if provider != "chroma":
+        return {"status": "skipped", "reason": f"vector_provider={provider}"}
+
+    pool_size = _as_int(runtime_config.get("vdb_pool_size"), 4, minimum=1, maximum=16)
+    try:
+        import concurrent.futures
+        import hy_memory.data.vector_store_chroma as chroma_store
+
+        previous_pool_size = getattr(chroma_store, "_VDB_POOL_SIZE", None)
+        old_executor = getattr(chroma_store, "_vdb_executor", None)
+        if int(previous_pool_size or 0) == pool_size and getattr(old_executor, "_max_workers", None) == pool_size:
+            return {"status": "ok", "pool_size": pool_size, "previous_pool_size": previous_pool_size, "unchanged": True}
+        if old_executor is not None and hasattr(old_executor, "shutdown"):
+            old_executor.shutdown(wait=False, cancel_futures=True)
+        chroma_store._VDB_POOL_SIZE = pool_size
+        chroma_store._vdb_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=pool_size,
+            thread_name_prefix="vdb",
+        )
+        return {"status": "ok", "pool_size": pool_size, "previous_pool_size": previous_pool_size}
+    except Exception as exc:
+        return {"status": "error", "pool_size": pool_size, "message": str(exc)}
+
+
 def handle_init(message: Mapping[str, Any]) -> Dict[str, Any]:
     global _client, _llm_patch
     import hy_memory
 
     sdk_config = message.get("sdk_config") if isinstance(message.get("sdk_config"), Mapping) else {}
+    runtime_config = message.get("runtime_config") if isinstance(message.get("runtime_config"), Mapping) else {}
     llm_mode = str(message.get("llm_mode") or sdk_config.get("llm", {}).get("mode") or "hermes")
     if llm_mode == "hermes":
         if HyMemoryLLMPatch is None:
@@ -160,9 +203,10 @@ def handle_init(message: Mapping[str, Any]) -> Dict[str, Any]:
     else:
         patch_status = {"installed": False, "patched": [], "missing": [], "restored": False}
 
+    chroma_vdb_pool = _configure_chroma_vdb_pool(sdk_config, runtime_config)
     client_cls = getattr(hy_memory, "HyMemoryClient")
     _client = client_cls.from_config(dict(sdk_config), mode=message.get("mode"))
-    return {"initialized": True, "pid": os.getpid(), "llm_patch": patch_status}
+    return {"initialized": True, "pid": os.getpid(), "llm_patch": patch_status, "chroma_vdb_pool": chroma_vdb_pool}
 
 
 def handle_call(message: Mapping[str, Any]) -> Any:

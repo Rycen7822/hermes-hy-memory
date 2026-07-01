@@ -288,10 +288,51 @@ class ManagedHyMemoryWorkerClient:
         self._initialized = False
 
     def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
-        process = self._ensure_process()
-        return process.request({"type": "call", "method": method, "args": list(args), "kwargs": kwargs})
+        message = {"type": "call", "method": method, "args": list(args), "kwargs": kwargs}
+        try:
+            process = self._ensure_process()
+            return process.request(message)
+        except (BrokenPipeError, OSError, RuntimeError) as exc:
+            if not self._is_worker_process_failure(exc):
+                raise
+            self._discard_process()
+            if method in {"search", "get", "list_memories"}:
+                process = self._ensure_process()
+                return process.request(message)
+            raise RuntimeError(
+                f"HY Memory worker crashed during non-idempotent method '{method}'. "
+                "The worker was reset, but the operation was not retried to avoid "
+                "duplicating or partially reversing memory state. Retry manually only "
+                "after confirming the previous operation did not apply."
+            ) from exc
+
+    @staticmethod
+    def _is_worker_process_failure(exc: BaseException) -> bool:
+        text = str(exc).lower()
+        return any(
+            marker in text
+            for marker in (
+                "worker exited unexpectedly",
+                "broken pipe",
+                "connection reset",
+                "worker is not initialized",
+                "code=-11",
+                "sigsegv",
+            )
+        )
+
+    def _discard_process(self) -> None:
+        if self._process is not None:
+            try:
+                self._process.close()
+            except Exception:
+                pass
+        self._process = None
+        self._initialized = False
 
     def _ensure_process(self) -> JsonlWorkerProcess:
+        if self._process is not None and not self._process.started:
+            self._discard_process()
         if self._process is None:
             command = self.runtime.command()
             if self._process_factory is not None:
@@ -302,6 +343,7 @@ class ManagedHyMemoryWorkerClient:
             self._process.request({
                 "type": "init",
                 "sdk_config": self.sdk_config,
+                "runtime_config": dict(self.config.runtime),
                 "mode": self.config.mode,
                 "llm_mode": self.config.llm.get("mode", "hermes"),
             })

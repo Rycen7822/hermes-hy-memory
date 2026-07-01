@@ -314,7 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run local read-only HY Memory dashboard",
     )
     dashboard.add_argument("--host", default="127.0.0.1", help="Local bind host; only 127.0.0.1 and localhost are allowed")
-    dashboard.add_argument("--port", type=int, default=8765, help="Local bind port; use 0 for an ephemeral test port")
+    dashboard.add_argument("--port", type=int, default=18999, help="Local bind port; use 0 for an ephemeral test port")
     dashboard.add_argument("--no-open", action="store_true", help="Do not open the dashboard URL in a browser")
     dashboard.set_defaults(func=cmd_dashboard)
     return parser

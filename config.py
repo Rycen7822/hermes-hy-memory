@@ -30,6 +30,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "auto_install": True,
         "python": "",
         "worker_script": "",
+        "vdb_pool_size": 4,
     },
     "vector_store": {
         "provider": "chroma",
@@ -83,6 +84,7 @@ OPENCLAW_ALIASES: Dict[str, str] = {
     "venvPath": "venv_path",
     "autoInstall": "auto_install",
     "workerScript": "worker_script",
+    "vdbPoolSize": "vdb_pool_size",
 }
 
 _SECRET_KEYS = {"api_key", "apiKey", "llm_api_key", "embedder_api_key"}
@@ -274,6 +276,7 @@ def load_hy_memory_config(hermes_home: str | Path, runtime: Mapping[str, Any] | 
         "auto_install": _as_bool(runtime_config.get("auto_install"), True),
         "python": str(runtime_config.get("python") or sys.executable),
         "worker_script": str(_expand_plugin_path(runtime_config.get("worker_script"), "hy_memory_worker.py")),
+        "vdb_pool_size": _as_int(runtime_config.get("vdb_pool_size"), 4, minimum=1, maximum=16),
     }
     vector_store = raw.get("vector_store") if isinstance(raw.get("vector_store"), Mapping) else {}
     llm = dict(raw.get("llm") if isinstance(raw.get("llm"), Mapping) else DEFAULT_CONFIG["llm"])
@@ -352,6 +355,7 @@ def get_config_schema() -> list[dict[str, Any]]:
         {"key": "runtime.mode", "description": "HY Memory runtime owner", "default": "managed_venv", "choices": ["managed_venv", "in_process"]},
         {"key": "runtime.venv_path", "description": "Managed HY Memory Python venv path", "default": "$HERMES_HOME/hy_memory/runtime/venv"},
         {"key": "runtime.auto_install", "description": "Allow managed runtime install on first real use", "default": "true", "choices": ["true", "false"]},
+        {"key": "runtime.vdb_pool_size", "description": "Managed worker Chroma vector DB thread pool size", "default": "4"},
         {"key": "llm_api_key", "description": "LLM API key", "secret": True, "required": False, "env_var": "MEMORY_LLM_API_KEY"},
         {"key": "embedder_api_key", "description": "Embedder API key", "secret": True, "required": False, "env_var": "MEMORY_EMBEDDER_API_KEY"},
     ]

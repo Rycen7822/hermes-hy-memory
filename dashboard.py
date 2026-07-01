@@ -1337,7 +1337,7 @@ def build_server(config: HyMemoryConfig, host: str, port: int) -> ThreadingHTTPS
     return server
 
 
-def run_dashboard(config: HyMemoryConfig, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> int:
+def run_dashboard(config: HyMemoryConfig, host: str = "127.0.0.1", port: int = 18999, open_browser: bool = True) -> int:
     server = build_server(config, host, port)
     actual_host, actual_port = server.server_address[:2]
     url = f"http://{actual_host}:{actual_port}"
