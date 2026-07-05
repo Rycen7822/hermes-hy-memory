@@ -7,6 +7,7 @@ import importlib.util
 import sys
 import threading
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -132,6 +133,31 @@ def _first_text_error(payload: Mapping[str, Any]) -> str:
     if payload.get("error_code") not in (None, "", False):
         return f"HY Memory add returned error_code={payload.get('error_code')}"
     return "HY Memory add failed"
+
+
+def normalize_memory_at(value: Any) -> Any:
+    """Convert tool/IPC timestamp inputs to the datetime expected by HY Memory."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError as exc:
+            try:
+                parsed = datetime.fromtimestamp(float(text), tz=timezone.utc)
+            except ValueError:
+                raise ValueError("memory_at must be an ISO timestamp or Unix timestamp") from exc
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    raise ValueError("memory_at must be an ISO timestamp, Unix timestamp, datetime, or null")
 
 
 def _normalize_add_result(result: Any) -> Dict[str, Any]:
@@ -270,7 +296,7 @@ class HyMemoryClientAdapter:
             agent_id=agent_id,
             session_id=session_id,
             metadata=metadata,
-            memory_at=memory_at,
+            memory_at=normalize_memory_at(memory_at),
         )
         return _normalize_add_result(raw)
 

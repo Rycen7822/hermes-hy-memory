@@ -148,6 +148,24 @@ def test_worker_init_limits_chroma_vdb_executor(monkeypatch):
     fake_chroma._vdb_executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_worker_parses_iso_memory_at_before_sdk_add(monkeypatch):
+    worker = importlib.import_module("hy_memory_worker")
+
+    class FakeSDKClient:
+        def add(self, data, **kwargs):
+            return {"data": data, "memory_at": kwargs["memory_at"].isoformat()}
+
+    monkeypatch.setattr(worker, "_client", FakeSDKClient())
+
+    result = worker.handle_call({
+        "method": "add",
+        "args": ["durable fact"],
+        "kwargs": {"memory_at": "2026-07-05T17:49:48Z", "user_id": "u", "agent_id": "a", "session_id": "s"},
+    })
+
+    assert result["memory_at"] == "2026-07-05T17:49:48+00:00"
+
+
 def test_dead_cached_worker_is_recreated_before_next_call():
     created: list[FakeWorkerProcess] = []
     client = _client_with_factory(created)

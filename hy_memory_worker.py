@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Mapping
@@ -154,6 +155,30 @@ def _as_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, parsed))
 
 
+def _normalize_memory_at(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError as exc:
+            try:
+                parsed = datetime.fromtimestamp(float(text), tz=timezone.utc)
+            except ValueError:
+                raise ValueError("memory_at must be an ISO timestamp or Unix timestamp") from exc
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    raise ValueError("memory_at must be an ISO timestamp, Unix timestamp, datetime, or null")
+
+
 def _configure_chroma_vdb_pool(sdk_config: Mapping[str, Any], runtime_config: Mapping[str, Any]) -> Dict[str, Any]:
     """Limit HY Memory's Chroma thread pool before the SDK client is built.
 
@@ -215,8 +240,12 @@ def handle_call(message: Mapping[str, Any]) -> Any:
     method = str(message.get("method") or "")
     if method not in {"add", "search", "get", "update", "delete", "delete_all", "list_memories"}:
         raise RuntimeError(f"unsupported HY Memory worker method: {method}")
-    args = message.get("args") if isinstance(message.get("args"), list) else []
-    kwargs = message.get("kwargs") if isinstance(message.get("kwargs"), dict) else {}
+    raw_args = message.get("args")
+    args: list[Any] = raw_args if isinstance(raw_args, list) else []
+    raw_kwargs = message.get("kwargs")
+    kwargs: Dict[str, Any] = dict(raw_kwargs) if isinstance(raw_kwargs, Mapping) else {}
+    if method == "add" and "memory_at" in kwargs:
+        kwargs["memory_at"] = _normalize_memory_at(kwargs.get("memory_at"))
     return getattr(_client, method)(*args, **kwargs)
 
 

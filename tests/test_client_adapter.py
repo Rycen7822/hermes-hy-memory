@@ -165,6 +165,20 @@ def test_add_success_keeps_raw_memory_id_without_error(tmp_path, fake_hy_memory)
     adapter.close()
 
 
+def test_add_parses_iso_memory_at_for_sdk(tmp_path, fake_hy_memory):
+    save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
+    cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder", "session_id": "sess"})
+    adapter = HyMemoryClientAdapter(cfg)
+
+    adapter.add("durable fact", user_id="u1", agent_id="a1", session_id="s1", memory_at="2026-07-05T17:49:48Z")
+
+    client = FakeHyMemoryClient.created[0]
+    memory_at = client.calls[0][2]["memory_at"]
+    assert memory_at.isoformat() == "2026-07-05T17:49:48+00:00"
+
+    adapter.close()
+
+
 def test_adapter_lazy_initializes_client_and_forwards_calls(tmp_path, fake_hy_memory):
     save_hy_memory_config({"runtime": {"mode": "in_process"}}, tmp_path)
     cfg = load_hy_memory_config(tmp_path, {"agent_identity": "coder", "session_id": "sess"})
