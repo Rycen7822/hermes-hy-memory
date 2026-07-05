@@ -57,4 +57,4 @@ def test_user_plugin_is_discovered_and_loaded(tmp_path):
 def test_provider_exposes_initial_status_tool(tmp_path):
     data = run_probe(tmp_path)
 
-    assert 'hy_memory_status' in data['tool_names']
+    assert data['tool_names'] == ['hy_memory']

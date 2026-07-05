@@ -97,10 +97,56 @@ STATUS_SCHEMA = _schema(
     {"deep": {"type": "boolean", "description": "When true, run explicit SDK/vector/embedder/LLM health checks."}},
 )
 
-TOOL_SCHEMAS = [ADD_SCHEMA, SEARCH_SCHEMA, GET_SCHEMA, UPDATE_SCHEMA, DELETE_SCHEMA, LIST_SCHEMA, STATUS_SCHEMA]
+ACTION_TO_TOOL_NAME = {
+    "add": "hy_memory_add",
+    "search": "hy_memory_search",
+    "get": "hy_memory_get",
+    "update": "hy_memory_update",
+    "delete": "hy_memory_delete",
+    "list": "hy_memory_list",
+    "status": "hy_memory_status",
+}
+
+HY_MEMORY_SCHEMA = _schema(
+    "hy_memory",
+    "Manage explicit HY Memory operations through one action-based tool. Use action='search' before update/delete, action='add' to save stable facts, and action='status' for provider diagnostics.",
+    {
+        "action": {
+            "type": "string",
+            "enum": list(ACTION_TO_TOOL_NAME),
+            "description": "HY Memory operation to perform.",
+        },
+        "content": {"type": "string", "description": "Memory text to add, or replacement content for update."},
+        "messages": {"type": "array", "description": "OpenAI-style messages to add."},
+        "metadata": {"type": "object", "description": "Optional JSON metadata for add or scoped operations."},
+        "query": {"type": "string", "description": "Search query for action='search'."},
+        "memory_id": {"type": "string", "description": "Exact HY Memory id for get/update/delete."},
+        "all": {"type": "boolean", "description": "For action='delete', delete all memories in scope only when confirm=true."},
+        "confirm": {"type": "boolean", "description": "Required with all=true for bulk delete."},
+        "deep": {"type": "boolean", "description": "For action='status', run explicit SDK/vector/embedder/LLM health checks."},
+        "user_id": {"type": "string"},
+        "agent_id": {"type": "string", "description": "Agent scope. Empty string searches across agents where supported."},
+        "session_id": {"type": "string"},
+        "memory_at": {"type": "string", "description": "Optional ISO timestamp for action='add'."},
+        "limit": {"type": "integer", "description": "Maximum result count for search/list."},
+        "offset": {"type": "integer", "description": "List offset for action='list'."},
+        "order": {"type": "string", "enum": ["desc", "asc"], "description": "List order for action='list'."},
+        "min_score": {"type": "number"},
+        "profile_limit": {"type": "integer"},
+        "profile_min_score": {"type": "number"},
+        "reader": {"type": "string"},
+        "include_raw": {"type": "boolean", "description": "Include raw backend payloads for search/list debugging."},
+    },
+    ["action"],
+)
+
+LEGACY_TOOL_SCHEMAS = [ADD_SCHEMA, SEARCH_SCHEMA, GET_SCHEMA, UPDATE_SCHEMA, DELETE_SCHEMA, LIST_SCHEMA, STATUS_SCHEMA]
+TOOL_SCHEMAS = [HY_MEMORY_SCHEMA]
 
 
-def get_tool_schemas() -> List[Dict[str, Any]]:
+def get_tool_schemas(*, include_legacy: bool = False) -> List[Dict[str, Any]]:
+    if include_legacy:
+        return list(TOOL_SCHEMAS) + list(LEGACY_TOOL_SCHEMAS)
     return list(TOOL_SCHEMAS)
 
 
@@ -307,9 +353,19 @@ def _augment_add_visibility(adapter: Any, payload: Dict[str, Any], data: Any, *,
 
 
 def handle_tool_call(adapter: Any, defaults: Mapping[str, Any], tool_name: str, args: Mapping[str, Any]) -> str:
-    args = args or {}
+    args = dict(args or {})
 
     try:
+        if tool_name == "hy_memory":
+            action = str(args.get("action") or "").strip().lower()
+            if not action:
+                return tool_error("Missing required parameter: action")
+            legacy_tool_name = ACTION_TO_TOOL_NAME.get(action)
+            if not legacy_tool_name:
+                return tool_error(f"Unknown HY Memory action: {action}")
+            args.pop("action", None)
+            tool_name = legacy_tool_name
+
         if tool_name == "hy_memory_status":
             return _json(adapter.status(deep=bool(args.get("deep"))))
 

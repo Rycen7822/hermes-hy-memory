@@ -150,7 +150,7 @@ def _config_dict(args) -> Dict[str, Any]:
 def cmd_status(args) -> int:
     provider = _provider(args)
     try:
-        return _print_json(provider.handle_tool_call("hy_memory_status", {"deep": bool(getattr(args, "deep", False))}))
+        return _print_json(provider.handle_tool_call("hy_memory", {"action": "status", "deep": bool(getattr(args, "deep", False))}))
     finally:
         provider.shutdown()
 
@@ -158,7 +158,7 @@ def cmd_status(args) -> int:
 def cmd_search(args) -> int:
     provider = _provider(args)
     try:
-        return _print_json(provider.handle_tool_call("hy_memory_search", {"query": args.query, "limit": args.limit}))
+        return _print_json(provider.handle_tool_call("hy_memory", {"action": "search", "query": args.query, "limit": args.limit}))
     finally:
         provider.shutdown()
 
@@ -166,7 +166,7 @@ def cmd_search(args) -> int:
 def cmd_add(args) -> int:
     provider = _provider(args)
     try:
-        return _print_json(provider.handle_tool_call("hy_memory_add", {"content": args.content, "metadata": {"source": "hy_memory_cli"}}))
+        return _print_json(provider.handle_tool_call("hy_memory", {"action": "add", "content": args.content, "metadata": {"source": "hy_memory_cli"}}))
     finally:
         provider.shutdown()
 
@@ -174,7 +174,7 @@ def cmd_add(args) -> int:
 def cmd_list(args) -> int:
     provider = _provider(args)
     try:
-        return _print_json(provider.handle_tool_call("hy_memory_list", {"limit": args.limit, "offset": args.offset}))
+        return _print_json(provider.handle_tool_call("hy_memory", {"action": "list", "limit": args.limit, "offset": args.offset}))
     finally:
         provider.shutdown()
 
@@ -182,7 +182,7 @@ def cmd_list(args) -> int:
 def cmd_delete(args) -> int:
     provider = _provider(args)
     try:
-        return _print_json(provider.handle_tool_call("hy_memory_delete", {"memory_id": args.memory_id}))
+        return _print_json(provider.handle_tool_call("hy_memory", {"action": "delete", "memory_id": args.memory_id}))
     finally:
         provider.shutdown()
 

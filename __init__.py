@@ -77,12 +77,11 @@ class HyMemoryProvider(MemoryProvider):
         return (
             "# HY Memory\n"
             f"Active. User: {self._config.user_id}. Agent: {self._config.agent_id}. Mode: {self._config.mode}.\n"
-            "Use hy_memory_search, hy_memory_add, hy_memory_get, hy_memory_update, "
-            "hy_memory_delete, hy_memory_list, and hy_memory_status for explicit memory operations. "
+            "Use hy_memory(action=\"search|add|get|update|delete|list|status\") for explicit memory operations. "
             "Bundled skill: load skill_view(name='hy_memory:hy-memory-curation'); plugin skills are qualified-only and may not appear in skills_list. "
             "For deletion or update, search/list first and use exact structured memory_id; do not fabricate ids. "
             "Raw ids returned by add are storage records for get/delete cleanup, not structured recall ids for update. "
-            "If hy_memory_add returns partial_success or searchable=false, treat it as not searchable and verify before relying on recall."
+            "If hy_memory(action=\"add\") returns partial_success or searchable=false, treat it as not searchable and verify before relying on recall."
         )
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:

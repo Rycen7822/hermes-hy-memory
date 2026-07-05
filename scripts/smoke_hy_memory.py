@@ -89,27 +89,37 @@ def main(argv: list[str] | None = None) -> int:
     content = f"The user prefers amber smoke-test banners when verifying HY Memory search. Tracking marker: {marker}."
     try:
         if args.deep:
-            status = _call(provider, "hy_memory_status", {"deep": True})
+            status = _call(provider, "hy_memory", {"action": "status", "deep": True})
             print(json.dumps({"status": status.get("checks", {})}, ensure_ascii=False))
-        added = _call(provider, "hy_memory_add", {"content": content, "metadata": {"source": "smoke", "marker": marker}})
+        added = _call(provider, "hy_memory", {"action": "add", "content": content, "metadata": {"source": "smoke", "marker": marker}})
         if added.get("partial_success") or added.get("success") is False:
             memory_id = added.get("memory_id") or added.get("raw_memory_id") or added.get("id")
             raise RuntimeError(f"smoke add was not searchable success: {json.dumps(added, ensure_ascii=False)}")
         memory_id = added.get("memory_id") or added.get("id")
-        searched = _call(provider, "hy_memory_search", {
-            "query": "What banner color does the user prefer when verifying HY Memory search?",
-            "limit": 5,
-            "min_score": 0,
-            "profile_min_score": 0,
-            "include_raw": True,
-        })
+        searched = _call(
+            provider,
+            "hy_memory",
+            {
+                "action": "search",
+                "query": "What banner color does the user prefer when verifying HY Memory search?",
+                "limit": 5,
+                "min_score": 0,
+                "profile_min_score": 0,
+                "include_raw": True,
+            },
+        )
         if not searched.get("count"):
             raise RuntimeError("smoke search returned no results")
         if not memory_id:
             memory_id = searched["results"][0].get("id")
+        found = marker in json.dumps(searched, ensure_ascii=False) or (
+            bool(memory_id) and any(item.get("id") == memory_id for item in searched.get("results", []))
+        )
+        if not found:
+            raise RuntimeError(f"smoke search did not return the added memory: {json.dumps(searched, ensure_ascii=False)}")
         if memory_id:
-            _call(provider, "hy_memory_get", {"memory_id": memory_id})
-            _call(provider, "hy_memory_delete", {"memory_id": memory_id})
+            _call(provider, "hy_memory", {"action": "get", "memory_id": memory_id})
+            _call(provider, "hy_memory", {"action": "delete", "memory_id": memory_id})
         print("PASS: HY Memory add/search/get/delete smoke completed")
         return 0
     except Exception as exc:
@@ -120,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         try:
-            _call(provider, "hy_memory_delete", {"all": True, "confirm": True, "user_id": args.user_id, "agent_id": "smoke", "session_id": "hy-memory-smoke"})
+            _call(provider, "hy_memory", {"action": "delete", "all": True, "confirm": True, "user_id": args.user_id, "agent_id": "smoke", "session_id": "hy-memory-smoke"})
         except Exception:
             pass
         provider.shutdown()

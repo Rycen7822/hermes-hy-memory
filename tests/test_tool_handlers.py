@@ -54,14 +54,50 @@ def parse(result):
 def test_tool_schemas_are_namespaced_and_complete():
     names = [schema["name"] for schema in get_tool_schemas()]
 
-    assert names == [
-        "hy_memory_add",
-        "hy_memory_search",
-        "hy_memory_get",
-        "hy_memory_update",
-        "hy_memory_delete",
-        "hy_memory_list",
-        "hy_memory_status",
+    assert names == ["hy_memory"]
+    schema = get_tool_schemas()[0]
+    params = schema["parameters"]
+    assert params["required"] == ["action"]
+    assert params["properties"]["action"]["enum"] == ["add", "search", "get", "update", "delete", "list", "status"]
+
+
+def test_aggregate_tool_requires_known_action():
+    missing = parse(handle_tool_call(FakeAdapter(), defaults(), "hy_memory", {}))
+    unknown = parse(handle_tool_call(FakeAdapter(), defaults(), "hy_memory", {"action": "merge"}))
+
+    assert "action" in missing["error"]
+    assert "Unknown HY Memory action" in unknown["error"]
+
+
+def test_aggregate_search_dispatches_to_existing_behavior():
+    adapter = FakeAdapter()
+
+    result = parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "search", "query": "hello", "limit": 99, "min_score": 0.5}))
+
+    assert result["count"] == 1
+    assert result["results"][0]["id"] == "m1"
+    assert adapter.calls[0] == ("search", "hello", {"user_ids": ["u-default"], "agent_ids": ["a-default"], "session_ids": None, "limit": 50, "min_score": 0.5, "profile_limit": 5, "profile_min_score": 0.4, "reader": ""})
+
+
+def test_aggregate_add_get_update_delete_list_status_dispatch():
+    adapter = FakeAdapter()
+
+    assert parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "add", "content": "fact"}))["memory_id"] == "m2"
+    assert parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "get", "memory_id": "m1"}))["memory"]["content"] == "stored fact"
+    assert parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "update", "memory_id": "m1", "content": "new"}))["memory_id"] == "m1"
+    assert parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "delete", "memory_id": "m1"}))["deleted_count"] == 1
+    assert parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "list", "limit": 5}))["count"] == 1
+    assert parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "status", "deep": True}))["deep"] is True
+
+    assert [call[0] for call in adapter.calls] == [
+        "add",
+        "search",
+        "get",
+        "get",
+        "update",
+        "delete",
+        "list_memories",
+        "status",
     ]
 
 
@@ -192,7 +228,7 @@ def test_update_allows_structured_memory_id():
 
 def test_list_filters_session_id_from_vdb_payload():
     schemas = {schema["name"]: schema for schema in get_tool_schemas()}
-    assert "session_id" in schemas["hy_memory_list"]["parameters"]["properties"]
+    assert "session_id" in schemas["hy_memory"]["parameters"]["properties"]
     adapter = FakeAdapter(
         list_payload={
             "vdb": {
@@ -206,7 +242,7 @@ def test_list_filters_session_id_from_vdb_payload():
         }
     )
 
-    result = parse(handle_tool_call(adapter, defaults(), "hy_memory_list", {"limit": 5, "session_id": "s-keep"}))
+    result = parse(handle_tool_call(adapter, defaults(), "hy_memory", {"action": "list", "limit": 5, "session_id": "s-keep"}))
 
     assert result["count"] == 2
     assert [item["id"] for item in result["memories"]] == ["keep", "keep-raw"]

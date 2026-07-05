@@ -54,7 +54,7 @@ def test_register_exposes_bundled_curation_skill_for_standalone_plugin_context()
     content = path.read_text(encoding="utf-8")
     assert content.startswith("---\nname: hy-memory-curation\n")
     assert "## Post-task Proactive Curation" in content
-    assert "hy_memory_add" in content
+    assert "hy_memory(action=\"add\"" in content
     assert "hy_memory:hy-memory-curation" in content
     assert "partial_success" in content
     assert "structured ids" in content.lower()
@@ -68,15 +68,7 @@ def test_register_exposes_explicit_hy_memory_tools_for_standalone_plugin_context
     module.register(ctx)
 
     names = [tool["name"] for tool in ctx.tools]
-    assert names == [
-        "hy_memory_add",
-        "hy_memory_search",
-        "hy_memory_get",
-        "hy_memory_update",
-        "hy_memory_delete",
-        "hy_memory_list",
-        "hy_memory_status",
-    ]
+    assert names == ["hy_memory"]
     assert {tool["toolset"] for tool in ctx.tools} == {"hy_memory"}
     assert all(callable(tool["handler"]) for tool in ctx.tools)
     assert all(tool["description"] for tool in ctx.tools)

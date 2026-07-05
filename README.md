@@ -1,6 +1,6 @@
 # Hermes HY Memory Provider
 
-Hermes HY Memory Provider is a single Hermes Agent memory-provider plugin for the `hy-memory` Python SDK. It provides automatic recall/capture plus explicit `hy_memory_*` tools without requiring a separate default MCP server.
+Hermes HY Memory Provider is a single Hermes Agent memory-provider plugin for the `hy-memory` Python SDK. It provides automatic recall/capture plus the explicit aggregate `hy_memory(action=...)` tool without requiring a separate default MCP server.
 
 ## What is included
 
@@ -10,7 +10,7 @@ Hermes HY Memory Provider is a single Hermes Agent memory-provider plugin for th
 - Hermes-hosted LLM routing adapter: `hermes_llm.py`
 - HY Memory SDK LLMProvider injection: `hy_memory_llm_patch.py`
 - SDK/worker adapter around `hy_memory.HyMemoryClient`: `client_adapter.py`
-- Tools: `hy_memory_add`, `hy_memory_search`, `hy_memory_get`, `hy_memory_update`, `hy_memory_delete`, `hy_memory_list`, `hy_memory_status`
+- Tool: `hy_memory(action="add|search|get|update|delete|list|status")`
 - Bundled curation skill: `hy_memory:hy-memory-curation`
 - Background prefetch/capture lifecycle hooks
 - Developer CLI and optional smoke test
@@ -35,9 +35,9 @@ The plugin ships `hy_memory:hy-memory-curation`, adapted from the EverOS-Hermes 
 /skill hy_memory:hy-memory-curation
 ```
 
-Plugin-bundled skills are qualified-only in the current Hermes Agent plugin model. `hy_memory:hy-memory-curation` can load by qualified name even when ordinary `skills_list` or `hermes skills list` output does not show it; this plugin surfaces the qualified load path in `hy_memory_status` and the system prompt instead of modifying Hermes Agent core.
+Plugin-bundled skills are qualified-only in the current Hermes Agent plugin model. `hy_memory:hy-memory-curation` can load by qualified name even when ordinary `skills_list` or `hermes skills list` output does not show it; this plugin surfaces the qualified load path in `hy_memory(action="status")` and the system prompt instead of modifying Hermes Agent core.
 
-The skill also documents HY Memory-specific behavior: successful `hy_memory_add` calls may remain as `l1_raw`, while `hy_memory_search` and `hy_memory_list` mainly return structured layers such as identity/profile/normal memories. For live search smoke tests, use durable-looking preference or identity facts and keep cleanup intent in metadata, then delete the isolated test scope.
+The skill also documents HY Memory-specific behavior: successful `hy_memory(action="add")` calls may remain as `l1_raw`, while `hy_memory(action="search")` and `hy_memory(action="list")` mainly return structured layers such as identity/profile/normal memories. For live search smoke tests, use durable-looking preference or identity facts and keep cleanup intent in metadata, then delete the isolated test scope.
 
 ## Runtime architecture
 
@@ -240,14 +240,14 @@ ADD, UPDATE, and DELETE are save-side activity. SEARCH and `READ_*` pipeline row
 
 ## Tool result contracts
 
-- `hy_memory_add` returns `success=false`, `partial_success=true`, `memory_id/raw_memory_id`, and `searchable=false` when HY Memory stores a raw record but LLM/backend extraction fails. Treat that as a partial failure and clean up the raw id if needed.
-- Successful string adds may include `structured_memory_ids`, `structured_count`, and `searchable`. Use these structured ids, or ids returned by `hy_memory_search`/`hy_memory_list`, for `hy_memory_update`.
-- Raw ids returned directly by add are storage records for `hy_memory_get` and cleanup. They are not structured recall ids; `hy_memory_update` rejects raw/shadow ids with `error_code="raw_id_not_structured"`.
-- `hy_memory_list` accepts `session_id` and applies it as a tool-side post-filter over SDK list payloads.
+- `hy_memory(action="add")` returns `success=false`, `partial_success=true`, `memory_id/raw_memory_id`, and `searchable=false` when HY Memory stores a raw record but LLM/backend extraction fails. Treat that as a partial failure and clean up the raw id if needed.
+- Successful string adds may include `structured_memory_ids`, `structured_count`, and `searchable`. Use these structured ids, or ids returned by `hy_memory(action="search")`/`hy_memory(action="list")`, for `hy_memory(action="update")`.
+- Raw ids returned directly by add are storage records for `hy_memory(action="get")` and cleanup. They are not structured recall ids; `hy_memory(action="update")` rejects raw/shadow ids with `error_code="raw_id_not_structured"`.
+- `hy_memory(action="list")` accepts `session_id` and applies it as a tool-side post-filter over SDK list payloads.
 
 ## Notes
 
 - `reference/` is a local ignored cache of upstream `openclaw-hy-memory` and `hy-memory` artifacts. It is not part of the plugin source.
-- The implementation reuses upstream behavior at the interface level: HY Memory SDK calls stay behind `client_adapter.py`, OpenClaw-style grouped search results are normalized, and tool safety semantics are preserved with `hy_memory_*` namespacing.
+- The implementation reuses upstream behavior at the interface level: HY Memory SDK calls stay behind `client_adapter.py`, OpenClaw-style grouped search results are normalized, and tool safety semantics are preserved behind the aggregate `hy_memory(action=...)` tool.
 - Managed runtime isolation follows the OpenClaw venv idea but keeps the Hermes plugin as the single integration point and preserves Hermes-hosted LLM provider routing through the parent-process JSONL callback bridge.
 - Automatic capture is disabled for Hermes `agent_context` values `cron`, `flush`, and `subagent` to avoid polluting primary user memory.
